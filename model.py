@@ -192,6 +192,11 @@ def _purged_split(X: np.ndarray, y: np.ndarray, train_ratio: float, purge: int):
 
 def _train_l1_model(model, X_tr, y_tr, X_va, y_va, scaler, weights_tr=None):
     """Fit a single L1 model; returns fitted model + val preds."""
+    # Guard: ensure train and val have identical feature counts
+    if X_tr.shape[1] != X_va.shape[1]:
+        min_cols = min(X_tr.shape[1], X_va.shape[1])
+        X_tr = X_tr[:, :min_cols]
+        X_va = X_va[:, :min_cols]
     Xs_tr = scaler.fit_transform(X_tr)
     Xs_va = scaler.transform(X_va)
 
@@ -402,13 +407,15 @@ class StockPredictor:
                                              "reg_alpha", "reg_lambda",
                                              "min_child_weight", "n_estimators")}
 
-            # ── Add multi-timeframe features from shorter horizons ───────────
+            # Multi-timeframe: add shorter-horizon calibration signals as scalar features
             feat_with_mtf = features_all.copy()
-            for prev_h, prev_preds in self.horizon_preds.items():
+            for prev_h, prev_cal in self.horizon_preds.items():
                 if HORIZONS[prev_h] < HORIZONS[horizon]:
-                    # Add the shorter horizon's L2 prediction as a feature
-                    mtf_col = f"mtf_{prev_h.replace(' ', '_')}"
-                    feat_with_mtf[mtf_col] = prev_preds
+                    # Use dir_acc and avg_member_acc from shorter horizon as constant features
+                    mtf_col = f"mtf_dacc_{prev_h.replace(' ', '_')}"
+                    feat_with_mtf[mtf_col] = prev_cal.get("dir_acc", 0.5)
+                    mtf_col2 = f"mtf_macc_{prev_h.replace(' ', '_')}"
+                    feat_with_mtf[mtf_col2] = prev_cal.get("avg_member_acc", 0.5)
 
             X_all, y_all, _, all_cols = self._prep(feat_with_mtf, targets, horizon)
 
@@ -452,17 +459,20 @@ class StockPredictor:
             y_tr_dir = (y_tr > dir_threshold).astype(int)
             y_va_dir = (y_va > dir_threshold).astype(int)
 
-            # Risk-adjusted targets
+            # Risk-adjusted targets — aligned to same rows as main target
             y_radj_col = f"target_radj_{horizon}"
             if y_radj_col in targets.columns:
-                _, y_radj_all, _, _ = self._prep(
-                    feat_with_mtf, targets, horizon,
-                    selected=selected, target_col=y_radj_col)
-                y_radj_tr, _, y_radj_va, _ = _purged_split(
-                    np.zeros((len(y_radj_all), 1)), y_radj_all, TRAIN_RATIO, PURGE_DAYS)
-                # Clip extreme risk-adjusted values
-                y_radj_tr = np.clip(y_radj_tr, -5, 5)
-                y_radj_va = np.clip(y_radj_va, -5, 5)
+                # Use the same merged index as the main target to ensure alignment
+                col_main = f"target_{horizon}"
+                cols_sel = selected if selected else list(feat_with_mtf.columns)
+                merged_radj = pd.concat([feat_with_mtf[cols_sel],
+                                          targets[[col_main, y_radj_col]]], axis=1).dropna()
+                y_radj_aligned = merged_radj[y_radj_col].values
+                # Split with same ratio/purge as main
+                split_r = int(len(y_radj_aligned) * TRAIN_RATIO)
+                val_start_r = min(split_r + PURGE_DAYS, len(y_radj_aligned))
+                y_radj_tr = np.clip(y_radj_aligned[:split_r], -5, 5)
+                y_radj_va = np.clip(y_radj_aligned[val_start_r:], -5, 5)
             else:
                 y_radj_tr = y_tr
                 y_radj_va = y_va
@@ -478,117 +488,148 @@ class StockPredictor:
                 if tuned_xgb_params:
                     params["random_state"] = variant["random_state"]
                 _prog(f"[{horizon}] XGB reg {i+1}/{len(XGB_VARIANTS)}…")
-
-                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"])
-                feat_idx  = [all_cols.index(f) for f in bag_feats]
-                X_tr_bag  = X_tr[:, feat_idx]
-                X_va_bag  = X_va[:, feat_idx]
-
-                sc  = RobustScaler()
-                mdl = XGBRegressor(
-                    eval_metric="rmse", early_stopping_rounds=30,
-                    verbosity=0, **params)
-                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
-                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
-                members.append({"model": mdl, "scaler": sc, "name": f"xgb_{i}",
-                                "feat_idx": feat_idx, "is_cls": False, "dir_acc": da})
-                oof_val_preds.append(vp)
-                member_dir_acc.append(da)
-
-            # — LightGBM regressors —
-            if HAS_LGB:
-                for i, variant in enumerate(LGB_VARIANTS):
-                    _prog(f"[{horizon}] LGB reg {i+1}/{len(LGB_VARIANTS)}…")
-                    bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+100)
+                try:
+                    bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"])
                     feat_idx  = [all_cols.index(f) for f in bag_feats]
                     X_tr_bag  = X_tr[:, feat_idx]
                     X_va_bag  = X_va[:, feat_idx]
 
                     sc  = RobustScaler()
-                    mdl = lgb.LGBMRegressor(**variant)
+                    mdl = XGBRegressor(
+                        eval_metric="rmse", early_stopping_rounds=30,
+                        verbosity=0, **params)
                     mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
                     da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
-                    members.append({"model": mdl, "scaler": sc, "name": f"lgb_{i}",
-                                    "feat_idx": feat_idx, "is_cls": False, "dir_acc": da})
+                    members.append({"model": mdl, "scaler": sc, "name": f"xgb_{i}",
+                                    "feat_idx": feat_idx, "feat_names": bag_feats,
+                                    "is_cls": False, "dir_acc": da})
                     oof_val_preds.append(vp)
                     member_dir_acc.append(da)
+                except Exception:
+                    pass
+
+            # — LightGBM regressors —
+            if HAS_LGB:
+                for i, variant in enumerate(LGB_VARIANTS):
+                    _prog(f"[{horizon}] LGB reg {i+1}/{len(LGB_VARIANTS)}…")
+                    try:
+                        bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+100)
+                        feat_idx  = [all_cols.index(f) for f in bag_feats]
+                        X_tr_bag  = X_tr[:, feat_idx]
+                        X_va_bag  = X_va[:, feat_idx]
+
+                        sc  = RobustScaler()
+                        mdl = lgb.LGBMRegressor(**variant)
+                        mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
+                        da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
+                        members.append({"model": mdl, "scaler": sc, "name": f"lgb_{i}",
+                                        "feat_idx": feat_idx, "feat_names": bag_feats,
+                                        "is_cls": False, "dir_acc": da})
+                        oof_val_preds.append(vp)
+                        member_dir_acc.append(da)
+                    except Exception:
+                        pass
 
             # — Random Forest regressors —
             for i, variant in enumerate(RF_VARIANTS):
                 _prog(f"[{horizon}] RF reg {i+1}/{len(RF_VARIANTS)}…")
-                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+200)
-                feat_idx  = [all_cols.index(f) for f in bag_feats]
-                X_tr_bag  = X_tr[:, feat_idx]
-                X_va_bag  = X_va[:, feat_idx]
+                try:
+                    bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+200)
+                    feat_idx  = [all_cols.index(f) for f in bag_feats]
+                    X_tr_bag  = X_tr[:, feat_idx]
+                    X_va_bag  = X_va[:, feat_idx]
 
-                sc  = RobustScaler()
-                mdl = RandomForestRegressor(n_jobs=-1, **variant)
-                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
-                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
-                members.append({"model": mdl, "scaler": sc, "name": f"rf_{i}",
-                                "feat_idx": feat_idx, "is_cls": False, "dir_acc": da})
-                oof_val_preds.append(vp)
-                member_dir_acc.append(da)
+                    sc  = RobustScaler()
+                    mdl = RandomForestRegressor(n_jobs=-1, **variant)
+                    mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
+                    da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
+                    members.append({"model": mdl, "scaler": sc, "name": f"rf_{i}",
+                                    "feat_idx": feat_idx, "feat_names": bag_feats,
+                                    "is_cls": False, "dir_acc": da})
+                    oof_val_preds.append(vp)
+                    member_dir_acc.append(da)
+                except Exception:
+                    pass
 
             # — XGBoost direction classifiers —
             for i, variant in enumerate(XGB_CLS_VARIANTS):
                 _prog(f"[{horizon}] XGB cls {i+1}/{len(XGB_CLS_VARIANTS)}…")
-                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+300)
-                feat_idx  = [all_cols.index(f) for f in bag_feats]
-                X_tr_bag  = X_tr[:, feat_idx]
-                X_va_bag  = X_va[:, feat_idx]
+                try:
+                    bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+300)
+                    feat_idx  = [all_cols.index(f) for f in bag_feats]
+                    X_tr_bag  = X_tr[:, feat_idx]
+                    X_va_bag  = X_va[:, feat_idx]
 
-                sc  = RobustScaler()
-                cls_params = {k: v for k, v in variant.items()
-                              if k not in ("eval_metric", "use_label_encoder")}
-                mdl = XGBClassifier(
-                    eval_metric="logloss", use_label_encoder=False,
-                    early_stopping_rounds=30, verbosity=0,
-                    **cls_params)
-                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr_dir, X_va_bag, y_va_dir, sc, weights_tr)
-                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
-                members.append({"model": mdl, "scaler": sc, "name": f"cls_{i}",
-                                "feat_idx": feat_idx, "is_cls": True, "dir_acc": da})
-                oof_val_preds.append(vp)
-                member_dir_acc.append(da)
+                    sc  = RobustScaler()
+                    cls_params = {k: v for k, v in variant.items()
+                                  if k not in ("eval_metric", "use_label_encoder")}
+                    mdl = XGBClassifier(
+                        eval_metric="logloss", use_label_encoder=False,
+                        early_stopping_rounds=30, verbosity=0,
+                        **cls_params)
+                    mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr_dir, X_va_bag, y_va_dir, sc, weights_tr)
+                    da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
+                    members.append({"model": mdl, "scaler": sc, "name": f"cls_{i}",
+                                    "feat_idx": feat_idx, "feat_names": bag_feats,
+                                    "is_cls": True, "dir_acc": da})
+                    oof_val_preds.append(vp)
+                    member_dir_acc.append(da)
+                except Exception:
+                    pass
 
             # — Random Forest classifiers —
             for i, variant in enumerate(RF_CLS_VARIANTS):
                 _prog(f"[{horizon}] RF cls {i+1}/{len(RF_CLS_VARIANTS)}…")
-                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+400)
-                feat_idx  = [all_cols.index(f) for f in bag_feats]
-                X_tr_bag  = X_tr[:, feat_idx]
-                X_va_bag  = X_va[:, feat_idx]
+                try:
+                    bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+400)
+                    feat_idx  = [all_cols.index(f) for f in bag_feats]
+                    X_tr_bag  = X_tr[:, feat_idx]
+                    X_va_bag  = X_va[:, feat_idx]
 
-                sc  = RobustScaler()
-                mdl = RandomForestClassifier(n_jobs=-1, **variant)
-                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr_dir, X_va_bag, y_va_dir, sc, weights_tr)
-                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
-                members.append({"model": mdl, "scaler": sc, "name": f"rfcls_{i}",
-                                "feat_idx": feat_idx, "is_cls": True, "dir_acc": da})
-                oof_val_preds.append(vp)
-                member_dir_acc.append(da)
+                    sc  = RobustScaler()
+                    mdl = RandomForestClassifier(n_jobs=-1, **variant)
+                    mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr_dir, X_va_bag, y_va_dir, sc, weights_tr)
+                    da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
+                    members.append({"model": mdl, "scaler": sc, "name": f"rfcls_{i}",
+                                    "feat_idx": feat_idx, "feat_names": bag_feats,
+                                    "is_cls": True, "dir_acc": da})
+                    oof_val_preds.append(vp)
+                    member_dir_acc.append(da)
+                except Exception:
+                    pass
 
             # — Risk-adjusted regressors —
+            # Only use risk-adjusted targets if they align with X_tr/X_va
+            use_radj = (len(y_radj_tr) == len(y_tr) and len(y_radj_va) == len(y_va))
+            radj_y_tr = y_radj_tr if use_radj else y_tr
+            radj_y_va = y_radj_va if use_radj else y_va
+
             for i, variant in enumerate(XGB_RADJ_VARIANTS):
                 _prog(f"[{horizon}] XGB radj {i+1}/{len(XGB_RADJ_VARIANTS)}…")
-                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+500)
-                feat_idx  = [all_cols.index(f) for f in bag_feats]
-                X_tr_bag  = X_tr[:, feat_idx]
-                X_va_bag  = X_va[:, feat_idx]
+                try:
+                    bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+500)
+                    feat_idx  = [all_cols.index(f) for f in bag_feats]
+                    X_tr_bag  = X_tr[:, feat_idx]
+                    X_va_bag  = X_va[:, feat_idx]
 
-                sc  = RobustScaler()
-                mdl = XGBRegressor(
-                    eval_metric="rmse", early_stopping_rounds=30,
-                    verbosity=0, **variant)
-                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_radj_tr, X_va_bag, y_radj_va, sc, weights_tr)
-                # Convert risk-adjusted prediction to directional signal for dir_acc
-                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
-                members.append({"model": mdl, "scaler": sc, "name": f"radj_{i}",
-                                "feat_idx": feat_idx, "is_cls": False,
-                                "is_radj": True, "dir_acc": da})
-                oof_val_preds.append(vp)
-                member_dir_acc.append(da)
+                    sc  = RobustScaler()
+                    mdl = XGBRegressor(
+                        eval_metric="rmse", early_stopping_rounds=30,
+                        verbosity=0, **variant)
+                    mdl, vp = _train_l1_model(mdl, X_tr_bag, radj_y_tr, X_va_bag, radj_y_va, sc, weights_tr)
+                    # Convert risk-adjusted prediction to directional signal for dir_acc
+                    da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(vp) == len(y_va) and len(y_va) > 0 else 0.5
+                    members.append({"model": mdl, "scaler": sc, "name": f"radj_{i}",
+                                    "feat_idx": feat_idx, "feat_names": bag_feats,
+                                    "is_cls": False, "is_radj": True, "dir_acc": da})
+                    oof_val_preds.append(vp)
+                    member_dir_acc.append(da)
+                except Exception:
+                    pass
+
+            # Guard: if ALL models failed somehow, skip this horizon
+            if not members:
+                continue
 
             # ── Walk-forward model selection (drop weak members) ─────────────
             _prog(f"[{horizon}] Model selection…")
@@ -621,32 +662,6 @@ class StockPredictor:
 
             l2_model = Ridge(alpha=1.0)
             l2_model.fit(meta_X_weighted, y_va)
-
-            # ── Store multi-timeframe predictions for longer horizons ────────
-            # Compute full-sample L1 predictions for the feature cascade
-            full_feat = feat_with_mtf[selected].dropna()
-            if len(full_feat) > 0:
-                full_row_all = full_feat.values
-                mtf_preds = pd.Series(index=full_feat.index, dtype=float)
-                for row_i in range(len(full_row_all)):
-                    l1_p = []
-                    for m in kept_members:
-                        row_bag = full_row_all[row_i, m["feat_idx"]] if max(m["feat_idx"]) < full_row_all.shape[1] else full_row_all[row_i]
-                        row_bag = row_bag.reshape(1, -1)
-                        try:
-                            Xs = m["scaler"].transform(row_bag)
-                            if m["is_cls"]:
-                                proba = m["model"].predict_proba(Xs)
-                                l1_p.append(float(proba[0, 1] * 2 - 1))
-                            else:
-                                l1_p.append(float(m["model"].predict(Xs)[0]))
-                        except Exception:
-                            l1_p.append(0.0)
-                    if l1_p:
-                        l1_arr = np.array(l1_p).reshape(1, -1)
-                        l1_weighted = l1_arr * model_weights[np.newaxis, :]
-                        mtf_preds.iloc[row_i] = float(l2_model.predict(l1_weighted)[0])
-                self.horizon_preds[horizon] = mtf_preds
 
             # ── Cross-validated isotonic calibration ─────────────────────────
             _prog(f"[{horizon}] Calibrating confidence…")
@@ -714,6 +729,13 @@ class StockPredictor:
             for i, m in enumerate(kept_members):
                 m["l2_weight"] = float(model_weights[i])
 
+            # ── Store calibration stats for multi-timeframe cascade ──────────
+            # Must be after calibration block so val_dir_acc & avg_member_acc exist
+            self.horizon_preds[horizon] = {
+                "dir_acc":        val_dir_acc,
+                "avg_member_acc": avg_member_acc,
+            }
+
         self.is_trained = True
         if progress_callback:
             progress_callback(1.0, "Training complete.")
@@ -743,37 +765,84 @@ class StockPredictor:
 
         for horizon in horizon_order:
             members = self.l1_members[horizon]
-            selected = self.selected_feats.get(horizon, list(features_all.columns))
-            selected = [f for f in selected if f in features_all.columns]
 
-            feat_clean = features_all[selected].dropna()
+            # Reconstruct MTF scalar columns exactly as done during training
+            # so that member scalers (which were fit on bags including MTF cols)
+            # receive the same feature dimensionality at predict time.
+            feat_with_mtf = features_all.copy()
+            for prev_h, prev_cal in self.horizon_preds.items():
+                if HORIZONS.get(prev_h, 0) < HORIZONS[horizon]:
+                    mtf_col  = f"mtf_dacc_{prev_h.replace(' ', '_')}"
+                    mtf_col2 = f"mtf_macc_{prev_h.replace(' ', '_')}"
+                    feat_with_mtf[mtf_col]  = prev_cal.get("dir_acc", 0.5)
+                    feat_with_mtf[mtf_col2] = prev_cal.get("avg_member_acc", 0.5)
+
+            selected = self.selected_feats.get(horizon, list(feat_with_mtf.columns))
+            selected = [f for f in selected if f in feat_with_mtf.columns]
+
+            feat_clean = feat_with_mtf[selected].dropna()
             if feat_clean.empty:
                 continue
 
             last_row_full = feat_clean.iloc[-1].values
+            # Build a name→index map for the current feature set
+            feat_name_to_idx = {name: i for i, name in enumerate(selected)}
 
             # L1 predictions
             l1_preds = []
             model_weights = []
             for m in members:
-                feat_idx = m["feat_idx"]
-                last_row_bag = last_row_full[feat_idx] if max(feat_idx) < len(last_row_full) else last_row_full
-                last_row_bag = last_row_bag.reshape(1, -1)
-                Xs = m["scaler"].transform(last_row_bag)
-
-                if m["is_cls"]:
-                    proba = m["model"].predict_proba(Xs)
-                    pred  = float(proba[0, 1] * 2 - 1)
+                # Always resolve indices by feature NAME to handle MTF columns
+                # that exist at train time but not at prediction time
+                feat_names_m = m.get("feat_names", [])
+                if feat_names_m:
+                    # Keep only names that exist in current feature set
+                    valid = [(name, feat_name_to_idx[name])
+                             for name in feat_names_m
+                             if name in feat_name_to_idx]
+                    if not valid:
+                        # fallback: use all features
+                        last_row_bag = last_row_full.reshape(1, -1)
+                    else:
+                        valid_names, valid_idx = zip(*valid)
+                        last_row_bag = last_row_full[list(valid_idx)].reshape(1, -1)
                 else:
-                    pred = float(m["model"].predict(Xs)[0])
-                l1_preds.append(pred)
-                model_weights.append(m.get("l2_weight", 1.0))
+                    # Legacy fallback using stored feat_idx
+                    feat_idx = m["feat_idx"]
+                    safe_idx = [i for i in feat_idx if i < len(last_row_full)]
+                    last_row_bag = last_row_full[safe_idx].reshape(1, -1)
+
+                try:
+                    Xs = m["scaler"].transform(last_row_bag)
+                    if m["is_cls"]:
+                        proba = m["model"].predict_proba(Xs)
+                        pred  = float(proba[0, 1] * 2 - 1)
+                    else:
+                        pred = float(m["model"].predict(Xs)[0])
+                    l1_preds.append(pred)
+                    model_weights.append(m.get("l2_weight", 1.0))
+                except Exception:
+                    pass
+
+            if not l1_preds:
+                continue
 
             l1_preds = np.array(l1_preds)
             model_weights = np.array(model_weights)
 
-            # L2 meta-learner with adaptive weighting
+            # L2 meta-learner with adaptive weighting — pad/trim to match trained L2 shape
             l2 = self.l2_models[horizon]
+            n_l2_feats = l2.coef_.shape[0] if hasattr(l2, "coef_") else len(l1_preds)
+            if len(l1_preds) < n_l2_feats:
+                # Pad with zeros if fewer models survived prediction than trained
+                pad = np.zeros(n_l2_feats - len(l1_preds))
+                l1_preds     = np.concatenate([l1_preds, pad])
+                model_weights = np.concatenate([model_weights,
+                                                np.ones(n_l2_feats - len(model_weights))])
+            elif len(l1_preds) > n_l2_feats:
+                l1_preds      = l1_preds[:n_l2_feats]
+                model_weights = model_weights[:n_l2_feats]
+
             meta_in = (l1_preds * model_weights).reshape(1, -1)
             stacked_ret = float(l2.predict(meta_in)[0])
 
