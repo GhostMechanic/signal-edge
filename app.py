@@ -319,6 +319,21 @@ def fmt_mc(mc):
     if mc > 1e9:  return f"${mc/1e9:.1f}B"
     return f"${mc/1e6:.0f}M"
 
+
+# ── Cached data fetchers (avoid re-downloading on every rerun) ───────────────
+
+@st.cache_data(ttl=900, show_spinner=False)   # 15-min cache
+def _cached_fetch_data(symbol: str, period: str):
+    return fetch_stock_data(symbol, period=period)
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_fetch_info(symbol: str):
+    return fetch_stock_info(symbol)
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_fetch_market(period: str, sector: str):
+    return fetch_market_context(period=period, sector=sector)
+
 def rsi_series(close):
     d = close.diff()
     g = d.clip(lower=0).ewm(com=13, min_periods=14).mean()
@@ -344,11 +359,11 @@ with st.sidebar:
         help="Any US stock ticker"
     ).upper().strip()
 
-    data_period = st.selectbox("Training History", ["3y","5y","7y","10y"], index=2,
-                               help="More history = more training data for the model")
+    data_period = st.selectbox("Training History", ["3y","5y","7y","10y"], index=1,
+                               help="More history = more training data. 5y is a good balance of speed & accuracy.")
 
     c1, c2 = st.columns(2)
-    with c1: run_bt  = st.checkbox("Backtest", value=True, help="Walk-forward backtest")
+    with c1: run_bt  = st.checkbox("Backtest", value=False, help="Walk-forward backtest (+1-2 min)")
     with c2: use_ctx = st.checkbox("SPY + VIX", value=True, help="Market context features")
 
     c3, c4 = st.columns(2)
@@ -394,8 +409,8 @@ if analyze_btn and symbol:
     with status:
         st.write("Fetching price data…")
         try:
-            df   = fetch_stock_data(symbol, period=data_period)
-            info = fetch_stock_info(symbol)
+            df   = _cached_fetch_data(symbol, period=data_period)
+            info = _cached_fetch_info(symbol)
         except Exception as e:
             st.error(f"Could not load {symbol}: {e}")
             st.stop()
@@ -404,7 +419,7 @@ if analyze_btn and symbol:
         if use_ctx:
             st.write("Fetching SPY + VIX…")
             try:
-                market_ctx = fetch_market_context(period=data_period, sector=info.get("sector"))
+                market_ctx = _cached_fetch_market(period=data_period, sector=info.get("sector"))
             except Exception:
                 pass
 
