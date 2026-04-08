@@ -23,7 +23,7 @@ from plotly.subplots import make_subplots
 
 from data_fetcher import (
     fetch_stock_data, fetch_stock_info, fetch_market_context,
-    engineer_features, HORIZONS,
+    fetch_fundamentals, engineer_features, HORIZONS,
 )
 from model import StockPredictor, HAS_LGB, HAS_SHAP, HAS_OPTUNA
 from backtester import run_backtest, backtest_summary_df
@@ -334,6 +334,10 @@ def _cached_fetch_info(symbol: str):
 def _cached_fetch_market(period: str, sector: str):
     return fetch_market_context(period=period, sector=sector)
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_fetch_fundamentals(symbol: str):
+    return fetch_fundamentals(symbol)
+
 def rsi_series(close):
     d = close.diff()
     g = d.clip(lower=0).ewm(com=13, min_periods=14).mean()
@@ -379,7 +383,7 @@ with st.sidebar:
     # Engine info
     parts = ["XGB×5"]
     if HAS_LGB: parts.append("LGB×3")
-    parts += ["RF×2", "CLS×2", "Ridge L2"]
+    parts += ["RF×2", "CLS×4", "RAdj×2", "Ridge L2"]
     st.markdown(
         f"<div style='background:{BG_SURFACE};border:1px solid {BORDER};border-radius:8px;"
         f"padding:10px 12px;font-size:0.7rem'>"
@@ -423,15 +427,22 @@ if analyze_btn and symbol:
             except Exception:
                 pass
 
-        n_mdls = 12 if HAS_LGB else 9
-        st.write(f"Training {n_mdls}-model stacked ensemble…")
+        st.write("Fetching fundamentals…")
+        try:
+            fundamentals = _cached_fetch_fundamentals(symbol)
+        except Exception:
+            fundamentals = {}
+
+        n_mdls = 16 if HAS_LGB else 13
+        st.write(f"Training {n_mdls}-model stacked ensemble (v5)…")
         prog = st.progress(0)
         def upd(f, msg): prog.progress(min(float(f), 1.0))
 
         try:
             predictor   = StockPredictor(symbol)
-            predictor.train(df, market_ctx=market_ctx, use_shap=use_shap,
-                            use_optuna=use_optuna, progress_callback=upd)
+            predictor.train(df, market_ctx=market_ctx, fundamentals=fundamentals,
+                            use_shap=use_shap, use_optuna=use_optuna,
+                            progress_callback=upd)
             predictions = predictor.predict(df, market_ctx=market_ctx)
         except Exception as e:
             st.error(f"Training failed: {e}")
@@ -451,7 +462,7 @@ if analyze_btn and symbol:
             bt_prog = st.progress(0)
             def bt_cb(f, msg): bt_prog.progress(min(float(f), 1.0))
             try:
-                bt_results = run_backtest(df, market_ctx=market_ctx, progress_callback=bt_cb)
+                bt_results = run_backtest(df, market_ctx=market_ctx, fundamentals=fundamentals, progress_callback=bt_cb)
             except Exception as e:
                 st.warning(f"Backtest error: {e}")
 

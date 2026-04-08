@@ -302,6 +302,7 @@ def _detect_regime(returns: pd.Series) -> str:
 def run_backtest(
     df: pd.DataFrame,
     market_ctx: Optional[dict] = None,
+    fundamentals: Optional[dict] = None,
     progress_callback=None,
 ) -> dict:
     """Run walk-forward backtest for all horizons with regime features."""
@@ -309,7 +310,8 @@ def run_backtest(
     vix = market_ctx.get("vix") if market_ctx else None
     sec = market_ctx.get("sector") if market_ctx else None
 
-    base_feats = engineer_features(df, spy_close=spy, vix_close=vix, sector_close=sec)
+    base_feats = engineer_features(df, spy_close=spy, vix_close=vix,
+                                    sector_close=sec, fundamentals=fundamentals)
     reg_feats  = regime_features(df, spy_close=spy, vix_close=vix)
     features   = pd.concat([base_feats, reg_feats], axis=1)
     features   = features.loc[:, ~features.columns.duplicated()]

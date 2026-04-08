@@ -81,6 +81,67 @@ def fetch_stock_info(symbol: str) -> dict:
                 "52w_low": None, "avg_volume": None, "beta": None, "description": ""}
 
 
+def fetch_fundamentals(symbol: str) -> dict:
+    """
+    Fetch fundamental data from yfinance for use as ML features.
+    Returns a dict of scalar values that apply to the most recent period.
+    Gracefully returns empty dict on failure.
+    """
+    try:
+        tk = yf.Ticker(symbol)
+        info = tk.info or {}
+
+        fundamentals = {}
+
+        # Valuation
+        fundamentals["pe_ratio"]       = info.get("trailingPE")
+        fundamentals["forward_pe"]     = info.get("forwardPE")
+        fundamentals["peg_ratio"]      = info.get("pegRatio")
+        fundamentals["pb_ratio"]       = info.get("priceToBook")
+        fundamentals["ps_ratio"]       = info.get("priceToSalesTrailing12Months")
+        fundamentals["ev_ebitda"]      = info.get("enterpriseToEbitda")
+
+        # Profitability
+        fundamentals["profit_margin"]  = info.get("profitMargins")
+        fundamentals["oper_margin"]    = info.get("operatingMargins")
+        fundamentals["roe"]            = info.get("returnOnEquity")
+        fundamentals["roa"]            = info.get("returnOnAssets")
+        fundamentals["gross_margin"]   = info.get("grossMargins")
+
+        # Growth
+        fundamentals["rev_growth"]     = info.get("revenueGrowth")
+        fundamentals["earn_growth"]    = info.get("earningsGrowth")
+        fundamentals["earn_qtr_growth"] = info.get("earningsQuarterlyGrowth")
+
+        # Financial health
+        fundamentals["debt_to_equity"] = info.get("debtToEquity")
+        fundamentals["current_ratio"]  = info.get("currentRatio")
+        fundamentals["quick_ratio"]    = info.get("quickRatio")
+
+        # Analyst sentiment
+        fundamentals["target_mean"]    = info.get("targetMeanPrice")
+        fundamentals["target_low"]     = info.get("targetLowPrice")
+        fundamentals["target_high"]    = info.get("targetHighPrice")
+        fundamentals["recommend_score"] = info.get("recommendationMean")  # 1=strong buy, 5=sell
+        fundamentals["n_analysts"]     = info.get("numberOfAnalystOpinions")
+
+        # Short interest
+        fundamentals["short_pct"]      = info.get("shortPercentOfFloat")
+
+        # Dividend
+        fundamentals["div_yield"]      = info.get("dividendYield")
+
+        # Clean: replace None with NaN
+        for k, v in fundamentals.items():
+            if v is None:
+                fundamentals[k] = float("nan")
+
+        return fundamentals
+
+    except Exception:
+        return {}
+
+
 def _fetch_series(symbol: str, period: str = "7y") -> pd.Series:
     """Fetch a single close-price series; return empty Series on failure."""
     try:
@@ -162,10 +223,12 @@ def engineer_features(
     spy_close: Optional[pd.Series] = None,
     vix_close: Optional[pd.Series] = None,
     sector_close: Optional[pd.Series] = None,
+    fundamentals: Optional[dict] = None,
 ) -> pd.DataFrame:
     """
     Build feature matrix. spy_close / vix_close / sector_close are optional
     enrichment series aligned to df's index.
+    fundamentals: optional dict of scalar fundamental values to broadcast.
     """
     close  = df["Close"]
     volume = df["Volume"]
@@ -367,6 +430,71 @@ def engineer_features(
             (close / close.shift(63)) / (sec / sec.shift(63) + 1e-9) - 1
         )
 
+    # ── Fundamental features (scalar, broadcast across all rows) ─────────
+    if fundamentals and isinstance(fundamentals, dict):
+        cur = float(close.iloc[-1])
+
+        # Valuation ratios
+        for key in ["pe_ratio", "forward_pe", "peg_ratio", "pb_ratio",
+                    "ps_ratio", "ev_ebitda"]:
+            val = fundamentals.get(key, float("nan"))
+            if val is not None and not np.isnan(val):
+                feats[f"fund_{key}"] = val
+            else:
+                feats[f"fund_{key}"] = 0.0
+
+        # Profitability
+        for key in ["profit_margin", "oper_margin", "roe", "roa", "gross_margin"]:
+            val = fundamentals.get(key, float("nan"))
+            if val is not None and not np.isnan(val):
+                feats[f"fund_{key}"] = val
+            else:
+                feats[f"fund_{key}"] = 0.0
+
+        # Growth signals
+        for key in ["rev_growth", "earn_growth", "earn_qtr_growth"]:
+            val = fundamentals.get(key, float("nan"))
+            if val is not None and not np.isnan(val):
+                feats[f"fund_{key}"] = val
+            else:
+                feats[f"fund_{key}"] = 0.0
+
+        # Financial health
+        for key in ["debt_to_equity", "current_ratio"]:
+            val = fundamentals.get(key, float("nan"))
+            if val is not None and not np.isnan(val):
+                feats[f"fund_{key}"] = val
+            else:
+                feats[f"fund_{key}"] = 0.0
+
+        # Analyst target vs current price (upside/downside potential)
+        tgt_mean = fundamentals.get("target_mean", float("nan"))
+        if tgt_mean and not np.isnan(tgt_mean) and cur > 0:
+            feats["analyst_upside"] = tgt_mean / cur - 1
+        else:
+            feats["analyst_upside"] = 0.0
+
+        tgt_high = fundamentals.get("target_high", float("nan"))
+        tgt_low  = fundamentals.get("target_low", float("nan"))
+        if tgt_high and tgt_low and not np.isnan(tgt_high) and not np.isnan(tgt_low) and cur > 0:
+            feats["analyst_range_pct"] = (tgt_high - tgt_low) / cur
+        else:
+            feats["analyst_range_pct"] = 0.0
+
+        # Analyst recommendation score (1=strong buy, 5=sell → invert so higher=bullish)
+        rec_score = fundamentals.get("recommend_score", float("nan"))
+        if rec_score and not np.isnan(rec_score):
+            feats["analyst_sentiment"] = (5.0 - rec_score) / 4.0  # normalize to 0-1
+        else:
+            feats["analyst_sentiment"] = 0.5
+
+        # Short interest
+        short_pct = fundamentals.get("short_pct", float("nan"))
+        if short_pct and not np.isnan(short_pct):
+            feats["short_interest"] = short_pct
+        else:
+            feats["short_interest"] = 0.0
+
     return feats
 
 
@@ -395,7 +523,19 @@ def create_targets(df: pd.DataFrame) -> pd.DataFrame:
     close   = df["Close"]
     targets = pd.DataFrame(index=df.index)
     for name, days in HORIZONS.items():
-        targets[f"target_{name}"] = close.shift(-days) / close - 1
+        raw_ret = close.shift(-days) / close - 1
+        targets[f"target_{name}"] = raw_ret
+
+        # Risk-adjusted target: return / realised volatility over horizon
+        # This helps the model focus on Sharpe-like quality, not just magnitude
+        rv = close.pct_change().rolling(days).std() * np.sqrt(252)
+        targets[f"target_radj_{name}"] = raw_ret / (rv + 1e-9)
+
+        # Direction classification target: 1 if up > threshold, 0 otherwise
+        # Use a small dead-zone threshold to reduce noise near zero
+        threshold = 0.005 if days <= 10 else 0.01
+        targets[f"target_dir_{name}"] = (raw_ret > threshold).astype(int)
+
     return targets
 
 

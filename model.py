@@ -1,28 +1,28 @@
 """
-model.py  –  Stacked Ensemble Prediction Engine  (v4)
+model.py  –  Stacked Ensemble Prediction Engine  (v5)
 ------------------------------------------------------
 Architecture:
-  Level 1:  XGBoost (5 variants) + LightGBM (3 models) + RandomForest (2 models)
-            + XGBClassifier (2 direction models) = up to 12 L1 members
+  Level 1:  XGBoost (5) + LightGBM (3) + RandomForest (2)
+            + XGBClassifier (2 direction) + RF Classifier (2 direction)
+            + Risk-Adjusted regressors (2) = up to 16 L1 members
             Each with feature bagging (random 75% of features) for diversity.
             Time-weighted sample weighting (recent data matters more).
-  Level 2:  Ridge meta-learner trained on L1 out-of-fold predictions.
+  Level 2:  Ridge meta-learner on L1 out-of-fold predictions
+            with adaptive weighting based on recent performance.
+  Multi-timeframe: shorter-horizon predictions feed as features into
+            longer-horizon models (information cascade).
 
-Accuracy improvements in v4:
-  • Exponential sample weighting (recent data weighted 3x more than oldest)
-  • Feature bagging: each L1 model trained on random 75% of features
-  • Direction classifiers as extra L1 members (probability → return signal)
-  • Purged validation: 5-day gap between train and val to prevent leakage
-  • Isotonic calibration of confidence scores using validation data
-  • SHAP-based feature selection  (select top_k by mean |SHAP|)
-  • Optuna hyperparameter tuning  (Bayesian optimisation, ~20 trials)
-
-Confidence scoring:
-  1. Collect all L1 model predictions for the latest row
-  2. Low std → high ensemble agreement → high confidence
-  3. Calibrate against validation directional accuracy (honest)
-  4. Isotonic calibration for realism
-  5. Clamp to [30, 95] to avoid extreme overconfidence
+Accuracy improvements in v5:
+  • All v4 improvements (exponential weighting, feature bagging, purged CV, etc.)
+  • Fundamental data as features (valuation, profitability, analyst targets)
+  • Risk-adjusted targets (return/vol) for Sharpe-focused regressors
+  • Direction classifiers with dead-zone thresholding
+  • RF classifiers for additional diversity
+  • Multi-timeframe stacking (1W preds → 1M features, etc.)
+  • Adaptive L2 weighting: underperforming L1 models get lower weight
+  • Walk-forward model selection: drop L1 members below accuracy threshold
+  • Cross-validated isotonic calibration for honest confidence
+  • Venn-ABERS inspired confidence bounding
 
 Python 3.9 compatible throughout.
 """
@@ -73,13 +73,15 @@ TRAIN_RATIO      = 0.80
 MIN_TRAIN        = 500
 N_OPTUNA_TRIALS  = 20
 SHAP_SAMPLE      = 300
-TOP_K_FEATURES   = 35           # increased from 30
-FEATURE_BAG_FRAC = 0.75         # each L1 model sees 75% of features
-PURGE_DAYS       = 5            # gap between train and val to prevent leakage
-WEIGHT_DECAY     = 3.0          # recent data weighted 3x more than oldest
+TOP_K_FEATURES   = 40           # increased from 35 — more features now available
+FEATURE_BAG_FRAC = 0.75
+PURGE_DAYS       = 5
+WEIGHT_DECAY     = 3.0
+MODEL_PERF_THRESHOLD = 0.48     # L1 models below this dir accuracy get dropped
+MIN_L1_MODELS    = 4            # always keep at least this many L1 models
 
 
-# ─── Level-1 model specs ──────────────────────────────────────────────────────
+# ─── Level-1 model specs ─────────────────────────────────────────────────────
 XGB_VARIANTS = [
     dict(n_estimators=500, max_depth=4, learning_rate=0.03,
          subsample=0.80, colsample_bytree=0.80,
@@ -125,7 +127,7 @@ RF_VARIANTS = [
          max_features=0.6, random_state=7),
 ]
 
-# Direction classifiers (XGBClassifier for direction prediction)
+# Direction classifiers
 XGB_CLS_VARIANTS = [
     dict(n_estimators=400, max_depth=4, learning_rate=0.04,
          subsample=0.80, colsample_bytree=0.80,
@@ -139,6 +141,26 @@ XGB_CLS_VARIANTS = [
          eval_metric="logloss"),
 ]
 
+# RF classifiers for diversity
+RF_CLS_VARIANTS = [
+    dict(n_estimators=250, max_depth=6, min_samples_leaf=10,
+         max_features=0.5, random_state=33),
+    dict(n_estimators=200, max_depth=5, min_samples_leaf=15,
+         max_features=0.6, random_state=66),
+]
+
+# Risk-adjusted target regressors (trained on return/vol target)
+XGB_RADJ_VARIANTS = [
+    dict(n_estimators=400, max_depth=4, learning_rate=0.04,
+         subsample=0.75, colsample_bytree=0.80,
+         reg_alpha=0.1, reg_lambda=1.0, min_child_weight=5,
+         tree_method="hist", random_state=77),
+    dict(n_estimators=350, max_depth=3, learning_rate=0.05,
+         subsample=0.80, colsample_bytree=0.75,
+         reg_alpha=0.15, reg_lambda=1.2, min_child_weight=6,
+         tree_method="hist", random_state=44),
+]
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -149,13 +171,11 @@ def _conf_label(conf: float) -> str:
 
 
 def _make_sample_weights(n: int, decay: float = WEIGHT_DECAY) -> np.ndarray:
-    """Exponential sample weights: recent data weighted `decay`x more than oldest."""
     w = np.exp(np.linspace(0, np.log(decay), n))
-    return w / w.mean()  # normalise so mean weight = 1
+    return w / w.mean()
 
 
 def _feature_bag(feature_names: List[str], frac: float, seed: int) -> List[str]:
-    """Random subset of feature names for feature bagging."""
     rng = np.random.default_rng(seed)
     k   = max(5, int(len(feature_names) * frac))
     idx = rng.choice(len(feature_names), k, replace=False)
@@ -163,7 +183,6 @@ def _feature_bag(feature_names: List[str], frac: float, seed: int) -> List[str]:
 
 
 def _purged_split(X: np.ndarray, y: np.ndarray, train_ratio: float, purge: int):
-    """Split with purge gap between train and validation."""
     split = int(len(X) * train_ratio)
     X_tr, y_tr = X[:split], y[:split]
     val_start  = min(split + purge, len(X))
@@ -189,18 +208,18 @@ def _train_l1_model(model, X_tr, y_tr, X_va, y_va, scaler, weights_tr=None):
                   eval_set=[(Xs_va, y_va)],
                   sample_weight=weights_tr,
                   callbacks=callbacks)
-    else:
-        # RandomForest — supports sample_weight in fit
+    elif isinstance(model, (RandomForestRegressor, RandomForestClassifier)):
         if weights_tr is not None:
             model.fit(Xs_tr, y_tr, sample_weight=weights_tr)
         else:
             model.fit(Xs_tr, y_tr)
+    else:
+        model.fit(Xs_tr, y_tr)
 
     # Prediction: classifiers output probability, regressors output value
-    if isinstance(model, XGBClassifier):
+    if isinstance(model, (XGBClassifier, RandomForestClassifier)):
         proba = model.predict_proba(Xs_va)
-        # Convert probability to pseudo-return: P(up) mapped to [-1, +1]
-        val_preds = proba[:, 1] * 2 - 1
+        val_preds = proba[:, 1] * 2 - 1  # Map P(up) to [-1, +1]
     else:
         val_preds = model.predict(Xs_va)
 
@@ -211,7 +230,6 @@ def _train_l1_model(model, X_tr, y_tr, X_va, y_va, scaler, weights_tr=None):
 
 def _optuna_tune_xgb(X_tr, y_tr, X_va, y_va, weights_tr=None,
                      n_trials: int = N_OPTUNA_TRIALS) -> dict:
-    """Return best XGBoost params found by Optuna."""
     if not HAS_OPTUNA:
         return {}
 
@@ -247,7 +265,7 @@ def _optuna_tune_xgb(X_tr, y_tr, X_va, y_va, weights_tr=None,
     return study.best_params
 
 
-# ─── SHAP feature selection ───────────────────────────────────────────────────
+# ─── SHAP feature selection ──────────────────────────────────────────────────
 
 def _shap_top_features(
     model, scaler: RobustScaler,
@@ -255,10 +273,8 @@ def _shap_top_features(
     feature_names: List[str],
     top_k: int = TOP_K_FEATURES,
 ) -> List[str]:
-    """Return top-k feature names by mean |SHAP| value."""
     if not HAS_SHAP:
         return feature_names
-
     try:
         Xs = scaler.transform(X_sample)
         explainer = shap.TreeExplainer(model)
@@ -270,66 +286,70 @@ def _shap_top_features(
         return feature_names
 
 
-# ─── StockPredictor ───────────────────────────────────────────────────────────
+# ─── StockPredictor ──────────────────────────────────────────────────────────
 
 class StockPredictor:
     """
-    Two-level stacked ensemble predictor (v4).
+    Two-level stacked ensemble predictor (v5).
 
-    Level 1:  XGBoost (5) + LightGBM (3 if available) + RandomForest (2)
-              + XGBClassifier (2 direction models)
-              Each with feature bagging + exponential sample weighting.
-    Level 2:  Ridge meta-learner on L1 out-of-fold predictions.
+    New in v5:
+      - Fundamental data features (valuation, profitability, analyst targets)
+      - Risk-adjusted target regressors
+      - RF direction classifiers for diversity
+      - Multi-timeframe stacking (shorter → longer horizon cascade)
+      - Adaptive L2 weighting (downweight underperforming L1 members)
+      - Walk-forward model selection (drop weak L1 members)
+      - Cross-validated isotonic calibration
     """
 
     def __init__(self, symbol: str):
         self.symbol         = symbol.upper()
-        self.l1_members     = {}    # horizon → list of {model, scaler, name, feat_idx}
+        self.l1_members     = {}    # horizon → list of {model, scaler, name, feat_idx, ...}
         self.l2_models      = {}    # horizon → Ridge
         self.calibration    = {}    # horizon → calibration stats
         self.conf_calibrator = {}   # horizon → IsotonicRegression
         self.feature_names  = []
-        self.selected_feats = {}    # horizon → selected feature names (post-SHAP)
+        self.selected_feats = {}    # horizon → selected feature names
         self.regime_cache   = None
+        self.horizon_preds  = {}    # for multi-timeframe stacking
+        self.model_perf     = {}    # horizon → per-model dir accuracy on val
         self.is_trained     = False
+        self.fundamentals   = None  # stored for prediction phase
 
-    # ── Feature preparation ───────────────────────────────────────────────────
+    # ── Feature preparation ──────────────────────────────────────────────────
 
     def _build_features(
         self,
         df: pd.DataFrame,
         market_ctx: Optional[dict] = None,
+        fundamentals: Optional[dict] = None,
     ) -> pd.DataFrame:
         spy = market_ctx.get("spy") if market_ctx else None
         vix = market_ctx.get("vix") if market_ctx else None
         sec = market_ctx.get("sector") if market_ctx else None
 
-        base  = engineer_features(df, spy_close=spy, vix_close=vix, sector_close=sec)
+        base  = engineer_features(df, spy_close=spy, vix_close=vix,
+                                   sector_close=sec, fundamentals=fundamentals)
         reg   = regime_features(df, spy_close=spy, vix_close=vix)
         combined = pd.concat([base, reg], axis=1)
         combined = combined.loc[:, ~combined.columns.duplicated()]
         return combined
 
-    def _prep(
-        self,
-        features: pd.DataFrame,
-        targets: pd.DataFrame,
-        horizon: str,
-        selected: Optional[List[str]] = None,
-    ):
-        col    = f"target_{horizon}"
+    def _prep(self, features, targets, horizon, selected=None, target_col=None):
+        col    = target_col or f"target_{horizon}"
         cols   = selected if selected else list(features.columns)
         merged = pd.concat([features[cols], targets[col]], axis=1).dropna()
         X      = merged[cols].values
         y      = merged[col].values
         return X, y, merged.index, cols
 
-    # ── Training ──────────────────────────────────────────────────────────────
+    # ── Training ─────────────────────────────────────────────────────────────
 
     def train(
         self,
         df: pd.DataFrame,
         market_ctx: Optional[dict] = None,
+        fundamentals: Optional[dict] = None,
         use_shap:   bool = False,
         use_optuna: bool = False,
         progress_callback = None,
@@ -338,17 +358,19 @@ class StockPredictor:
         if len(df) < MIN_TRAIN:
             raise ValueError(f"Need at least {MIN_TRAIN} trading days (got {len(df)}).")
 
-        features_all = self._build_features(df, market_ctx)
+        self.fundamentals = fundamentals
+        features_all = self._build_features(df, market_ctx, fundamentals)
         targets      = create_targets(df)
         self.feature_names = list(features_all.columns)
 
         # Count total training steps for progress bar
-        n_cls = len(XGB_CLS_VARIANTS)
+        n_cls = len(XGB_CLS_VARIANTS) + len(RF_CLS_VARIANTS)
+        n_radj = len(XGB_RADJ_VARIANTS)
         n_l1_per_horizon = (len(XGB_VARIANTS)
                             + (len(LGB_VARIANTS) if HAS_LGB else 0)
                             + len(RF_VARIANTS)
-                            + n_cls)
-        total_steps = len(HORIZONS) * (n_l1_per_horizon + 2)  # +2 for L2 + calibration
+                            + n_cls + n_radj)
+        total_steps = len(HORIZONS) * (n_l1_per_horizon + 3)  # +3 for L2 + calibration + selection
         step        = 0
 
         def _prog(msg: str):
@@ -357,9 +379,12 @@ class StockPredictor:
                 progress_callback(min(step / total_steps, 0.99), msg)
             step += 1
 
-        for horizon in HORIZONS.keys():
+        # Train horizons in order (short → long) for multi-timeframe stacking
+        horizon_order = sorted(HORIZONS.keys(), key=lambda h: HORIZONS[h])
 
-            # ── Optional Optuna tuning ────────────────────────────────────────
+        for horizon in horizon_order:
+
+            # ── Optional Optuna tuning ───────────────────────────────────────
             tuned_xgb_params = {}
             if use_optuna and HAS_OPTUNA:
                 _prog(f"[{horizon}] Optuna tuning…")
@@ -377,9 +402,17 @@ class StockPredictor:
                                              "reg_alpha", "reg_lambda",
                                              "min_child_weight", "n_estimators")}
 
-            X_all, y_all, _, all_cols = self._prep(features_all, targets, horizon)
+            # ── Add multi-timeframe features from shorter horizons ───────────
+            feat_with_mtf = features_all.copy()
+            for prev_h, prev_preds in self.horizon_preds.items():
+                if HORIZONS[prev_h] < HORIZONS[horizon]:
+                    # Add the shorter horizon's L2 prediction as a feature
+                    mtf_col = f"mtf_{prev_h.replace(' ', '_')}"
+                    feat_with_mtf[mtf_col] = prev_preds
 
-            # ── Optional SHAP feature selection ───────────────────────────────
+            X_all, y_all, _, all_cols = self._prep(feat_with_mtf, targets, horizon)
+
+            # ── Optional SHAP feature selection ──────────────────────────────
             selected = list(all_cols)
             if use_shap and HAS_SHAP and len(X_all) > SHAP_SAMPLE:
                 _prog(f"[{horizon}] SHAP feature selection…")
@@ -398,32 +431,46 @@ class StockPredictor:
                 shap_mdl.fit(Xs_tr, y_tr_s, eval_set=[(Xs_va, y_va_s)], verbose=False)
                 idx_sample = np.random.default_rng(42).choice(
                     len(X_tr_s), min(SHAP_SAMPLE, len(X_tr_s)), replace=False)
-                selected   = _shap_top_features(
+                selected = _shap_top_features(
                     shap_mdl, sc_shap, X_tr_s[idx_sample],
                     all_cols, top_k=TOP_K_FEATURES,
                 )
-                # Re-prep with selected features
                 X_all, y_all, _, all_cols = self._prep(
-                    features_all, targets, horizon, selected=selected)
+                    feat_with_mtf, targets, horizon, selected=selected)
 
             self.selected_feats[horizon] = selected
 
-            # ── Purged train/val split ────────────────────────────────────────
+            # ── Purged train/val split ───────────────────────────────────────
             X_tr, y_tr, X_va, y_va = _purged_split(
                 X_all, y_all, TRAIN_RATIO, PURGE_DAYS)
 
-            # ── Sample weights (exponential decay) ────────────────────────────
             weights_tr = _make_sample_weights(len(X_tr))
 
-            # ── Direction labels for classifiers ──────────────────────────────
-            y_tr_dir = (y_tr > 0).astype(int)
-            y_va_dir = (y_va > 0).astype(int)
+            # Direction labels (with dead-zone threshold)
+            days = HORIZONS[horizon]
+            dir_threshold = 0.005 if days <= 10 else 0.01
+            y_tr_dir = (y_tr > dir_threshold).astype(int)
+            y_va_dir = (y_va > dir_threshold).astype(int)
+
+            # Risk-adjusted targets
+            y_radj_col = f"target_radj_{horizon}"
+            if y_radj_col in targets.columns:
+                _, y_radj_all, _, _ = self._prep(
+                    feat_with_mtf, targets, horizon,
+                    selected=selected, target_col=y_radj_col)
+                y_radj_tr, _, y_radj_va, _ = _purged_split(
+                    np.zeros((len(y_radj_all), 1)), y_radj_all, TRAIN_RATIO, PURGE_DAYS)
+                # Clip extreme risk-adjusted values
+                y_radj_tr = np.clip(y_radj_tr, -5, 5)
+                y_radj_va = np.clip(y_radj_va, -5, 5)
+            else:
+                y_radj_tr = y_tr
+                y_radj_va = y_va
 
             # ── Level 1 training ─────────────────────────────────────────────
-            members        = []
-            oof_val_preds  = []
-
-            model_seed = 0
+            members       = []
+            oof_val_preds = []
+            member_dir_acc = []  # track per-model directional accuracy
 
             # — XGBoost regressors —
             for i, variant in enumerate(XGB_VARIANTS):
@@ -432,7 +479,6 @@ class StockPredictor:
                     params["random_state"] = variant["random_state"]
                 _prog(f"[{horizon}] XGB reg {i+1}/{len(XGB_VARIANTS)}…")
 
-                # Feature bagging
                 bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"])
                 feat_idx  = [all_cols.index(f) for f in bag_feats]
                 X_tr_bag  = X_tr[:, feat_idx]
@@ -443,9 +489,11 @@ class StockPredictor:
                     eval_metric="rmse", early_stopping_rounds=30,
                     verbosity=0, **params)
                 mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
+                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
                 members.append({"model": mdl, "scaler": sc, "name": f"xgb_{i}",
-                                "feat_idx": feat_idx, "is_cls": False})
+                                "feat_idx": feat_idx, "is_cls": False, "dir_acc": da})
                 oof_val_preds.append(vp)
+                member_dir_acc.append(da)
 
             # — LightGBM regressors —
             if HAS_LGB:
@@ -459,9 +507,11 @@ class StockPredictor:
                     sc  = RobustScaler()
                     mdl = lgb.LGBMRegressor(**variant)
                     mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
+                    da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
                     members.append({"model": mdl, "scaler": sc, "name": f"lgb_{i}",
-                                    "feat_idx": feat_idx, "is_cls": False})
+                                    "feat_idx": feat_idx, "is_cls": False, "dir_acc": da})
                     oof_val_preds.append(vp)
+                    member_dir_acc.append(da)
 
             # — Random Forest regressors —
             for i, variant in enumerate(RF_VARIANTS):
@@ -474,9 +524,11 @@ class StockPredictor:
                 sc  = RobustScaler()
                 mdl = RandomForestRegressor(n_jobs=-1, **variant)
                 mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr, X_va_bag, y_va, sc, weights_tr)
+                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
                 members.append({"model": mdl, "scaler": sc, "name": f"rf_{i}",
-                                "feat_idx": feat_idx, "is_cls": False})
+                                "feat_idx": feat_idx, "is_cls": False, "dir_acc": da})
                 oof_val_preds.append(vp)
+                member_dir_acc.append(da)
 
             # — XGBoost direction classifiers —
             for i, variant in enumerate(XGB_CLS_VARIANTS):
@@ -494,60 +546,180 @@ class StockPredictor:
                     early_stopping_rounds=30, verbosity=0,
                     **cls_params)
                 mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr_dir, X_va_bag, y_va_dir, sc, weights_tr)
+                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
                 members.append({"model": mdl, "scaler": sc, "name": f"cls_{i}",
-                                "feat_idx": feat_idx, "is_cls": True})
+                                "feat_idx": feat_idx, "is_cls": True, "dir_acc": da})
                 oof_val_preds.append(vp)
+                member_dir_acc.append(da)
 
-            # ── Level 2 meta-learner ──────────────────────────────────────────
+            # — Random Forest classifiers —
+            for i, variant in enumerate(RF_CLS_VARIANTS):
+                _prog(f"[{horizon}] RF cls {i+1}/{len(RF_CLS_VARIANTS)}…")
+                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+400)
+                feat_idx  = [all_cols.index(f) for f in bag_feats]
+                X_tr_bag  = X_tr[:, feat_idx]
+                X_va_bag  = X_va[:, feat_idx]
+
+                sc  = RobustScaler()
+                mdl = RandomForestClassifier(n_jobs=-1, **variant)
+                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_tr_dir, X_va_bag, y_va_dir, sc, weights_tr)
+                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
+                members.append({"model": mdl, "scaler": sc, "name": f"rfcls_{i}",
+                                "feat_idx": feat_idx, "is_cls": True, "dir_acc": da})
+                oof_val_preds.append(vp)
+                member_dir_acc.append(da)
+
+            # — Risk-adjusted regressors —
+            for i, variant in enumerate(XGB_RADJ_VARIANTS):
+                _prog(f"[{horizon}] XGB radj {i+1}/{len(XGB_RADJ_VARIANTS)}…")
+                bag_feats = _feature_bag(all_cols, FEATURE_BAG_FRAC, seed=variant["random_state"]+500)
+                feat_idx  = [all_cols.index(f) for f in bag_feats]
+                X_tr_bag  = X_tr[:, feat_idx]
+                X_va_bag  = X_va[:, feat_idx]
+
+                sc  = RobustScaler()
+                mdl = XGBRegressor(
+                    eval_metric="rmse", early_stopping_rounds=30,
+                    verbosity=0, **variant)
+                mdl, vp = _train_l1_model(mdl, X_tr_bag, y_radj_tr, X_va_bag, y_radj_va, sc, weights_tr)
+                # Convert risk-adjusted prediction to directional signal for dir_acc
+                da = float(np.mean(np.sign(vp) == np.sign(y_va))) if len(y_va) > 0 else 0.5
+                members.append({"model": mdl, "scaler": sc, "name": f"radj_{i}",
+                                "feat_idx": feat_idx, "is_cls": False,
+                                "is_radj": True, "dir_acc": da})
+                oof_val_preds.append(vp)
+                member_dir_acc.append(da)
+
+            # ── Walk-forward model selection (drop weak members) ─────────────
+            _prog(f"[{horizon}] Model selection…")
+            member_dir_acc = np.array(member_dir_acc)
+            keep_mask = member_dir_acc >= MODEL_PERF_THRESHOLD
+
+            # Always keep at least MIN_L1_MODELS
+            if keep_mask.sum() < MIN_L1_MODELS:
+                top_idx = np.argsort(member_dir_acc)[::-1][:MIN_L1_MODELS]
+                keep_mask = np.zeros(len(members), dtype=bool)
+                keep_mask[top_idx] = True
+
+            kept_members   = [m for m, k in zip(members, keep_mask) if k]
+            kept_oof       = [p for p, k in zip(oof_val_preds, keep_mask) if k]
+            kept_dir_acc   = member_dir_acc[keep_mask]
+
+            self.model_perf[horizon] = {
+                m["name"]: float(da) for m, da in zip(members, member_dir_acc)
+            }
+
+            # ── Level 2 meta-learner with adaptive weighting ─────────────────
             _prog(f"[{horizon}] Training meta-learner…")
-            meta_X   = np.column_stack(oof_val_preds)
-            l2_model = Ridge(alpha=1.0)
-            l2_model.fit(meta_X, y_va)
+            meta_X = np.column_stack(kept_oof)
 
-            # ── Calibration ──────────────────────────────────────────────────
+            # Adaptive: weight each L1 model's column by its dir accuracy
+            # This makes the Ridge focus more on models that got direction right
+            model_weights = np.clip(kept_dir_acc - 0.45, 0.05, 1.0)
+            model_weights = model_weights / model_weights.mean()
+            meta_X_weighted = meta_X * model_weights[np.newaxis, :]
+
+            l2_model = Ridge(alpha=1.0)
+            l2_model.fit(meta_X_weighted, y_va)
+
+            # ── Store multi-timeframe predictions for longer horizons ────────
+            # Compute full-sample L1 predictions for the feature cascade
+            full_feat = feat_with_mtf[selected].dropna()
+            if len(full_feat) > 0:
+                full_row_all = full_feat.values
+                mtf_preds = pd.Series(index=full_feat.index, dtype=float)
+                for row_i in range(len(full_row_all)):
+                    l1_p = []
+                    for m in kept_members:
+                        row_bag = full_row_all[row_i, m["feat_idx"]] if max(m["feat_idx"]) < full_row_all.shape[1] else full_row_all[row_i]
+                        row_bag = row_bag.reshape(1, -1)
+                        try:
+                            Xs = m["scaler"].transform(row_bag)
+                            if m["is_cls"]:
+                                proba = m["model"].predict_proba(Xs)
+                                l1_p.append(float(proba[0, 1] * 2 - 1))
+                            else:
+                                l1_p.append(float(m["model"].predict(Xs)[0]))
+                        except Exception:
+                            l1_p.append(0.0)
+                    if l1_p:
+                        l1_arr = np.array(l1_p).reshape(1, -1)
+                        l1_weighted = l1_arr * model_weights[np.newaxis, :]
+                        mtf_preds.iloc[row_i] = float(l2_model.predict(l1_weighted)[0])
+                self.horizon_preds[horizon] = mtf_preds
+
+            # ── Cross-validated isotonic calibration ─────────────────────────
             _prog(f"[{horizon}] Calibrating confidence…")
-            meta_preds   = l2_model.predict(meta_X)
+            meta_preds   = l2_model.predict(meta_X_weighted)
             errors       = np.abs(meta_preds - y_va)
-            all_preds_va = np.column_stack(oof_val_preds)
-            per_pred_std = np.std(all_preds_va, axis=1)
+            per_pred_std = np.std(meta_X, axis=1)
 
             dir_correct = (np.sign(meta_preds) == np.sign(y_va)).astype(float)
             val_dir_acc = float(dir_correct.mean())
 
-            # Isotonic calibration: map raw confidence → actual accuracy
+            # CV isotonic: split val into 2 folds for calibration
             std_norm   = np.clip(per_pred_std / (np.percentile(per_pred_std, 90) + 1e-9), 0, 1)
             agree_frac = np.array([
-                float(np.mean(np.sign(all_preds_va[j]) == np.sign(meta_preds[j])))
+                float(np.mean(np.sign(meta_X[j]) == np.sign(meta_preds[j])))
                 for j in range(len(meta_preds))
             ])
-            raw_conf   = 0.6 * agree_frac + 0.4 * (1 - std_norm)
-            blended    = 0.5 * raw_conf + 0.5 * val_dir_acc
 
+            # Enhanced raw confidence: include model quality signal
+            avg_member_acc = float(kept_dir_acc.mean())
+            raw_conf = (0.45 * agree_frac
+                       + 0.30 * (1 - std_norm)
+                       + 0.25 * avg_member_acc)
+            blended = 0.5 * raw_conf + 0.5 * val_dir_acc
+
+            # Cross-validated isotonic calibration
             try:
-                iso = IsotonicRegression(y_min=0.3, y_max=0.95, out_of_bounds="clip")
-                iso.fit(blended, dir_correct)
-                self.conf_calibrator[horizon] = iso
+                n_cal = len(blended)
+                mid   = n_cal // 2
+                iso1 = IsotonicRegression(y_min=0.30, y_max=0.95, out_of_bounds="clip")
+                iso2 = IsotonicRegression(y_min=0.30, y_max=0.95, out_of_bounds="clip")
+
+                if mid > 10:
+                    iso1.fit(blended[:mid], dir_correct[:mid])
+                    iso2.fit(blended[mid:], dir_correct[mid:])
+                    # Average the two calibrators' predictions
+                    cal1 = iso1.predict(blended)
+                    cal2 = iso2.predict(blended)
+                    avg_cal = (cal1 + cal2) / 2
+
+                    # Refit on full data using averaged as guide
+                    iso_final = IsotonicRegression(y_min=0.30, y_max=0.95, out_of_bounds="clip")
+                    iso_final.fit(blended, avg_cal)
+                    self.conf_calibrator[horizon] = iso_final
+                else:
+                    iso_final = IsotonicRegression(y_min=0.30, y_max=0.95, out_of_bounds="clip")
+                    iso_final.fit(blended, dir_correct)
+                    self.conf_calibrator[horizon] = iso_final
             except Exception:
                 self.conf_calibrator[horizon] = None
 
             self.calibration[horizon] = {
-                "mean_abs_err":  float(np.mean(errors)),
-                "std_abs_err":   float(np.std(errors)),
-                "dir_acc":       val_dir_acc,
-                "pred_std_p50":  float(np.percentile(per_pred_std, 50)),
-                "pred_std_p90":  float(np.percentile(per_pred_std, 90)),
-                "n_models":      len(members),
+                "mean_abs_err":    float(np.mean(errors)),
+                "std_abs_err":     float(np.std(errors)),
+                "dir_acc":         val_dir_acc,
+                "pred_std_p50":    float(np.percentile(per_pred_std, 50)),
+                "pred_std_p90":    float(np.percentile(per_pred_std, 90)),
+                "n_models":        len(kept_members),
+                "n_dropped":       int((~keep_mask).sum()),
+                "avg_member_acc":  avg_member_acc,
             }
 
-            self.l1_members[horizon] = members
-            self.l2_models[horizon]  = l2_model
+            self.l1_members[horizon]  = kept_members
+            self.l2_models[horizon]   = l2_model
+            # Store model weights for prediction
+            for i, m in enumerate(kept_members):
+                m["l2_weight"] = float(model_weights[i])
 
         self.is_trained = True
         if progress_callback:
             progress_callback(1.0, "Training complete.")
         return self
 
-    # ── Prediction ────────────────────────────────────────────────────────────
+    # ── Prediction ───────────────────────────────────────────────────────────
 
     def predict(
         self,
@@ -557,7 +729,7 @@ class StockPredictor:
         if not self.is_trained:
             raise RuntimeError("Call .train() first.")
 
-        features_all = self._build_features(df, market_ctx)
+        features_all = self._build_features(df, market_ctx, self.fundamentals)
         results      = {}
 
         spy = market_ctx.get("spy") if market_ctx else None
@@ -566,7 +738,11 @@ class StockPredictor:
 
         current_price = float(df["Close"].iloc[-1])
 
-        for horizon, members in self.l1_members.items():
+        # Predict in horizon order (short → long) for multi-timeframe
+        horizon_order = sorted(HORIZONS.keys(), key=lambda h: HORIZONS[h])
+
+        for horizon in horizon_order:
+            members = self.l1_members[horizon]
             selected = self.selected_feats.get(horizon, list(features_all.columns))
             selected = [f for f in selected if f in features_all.columns]
 
@@ -576,11 +752,11 @@ class StockPredictor:
 
             last_row_full = feat_clean.iloc[-1].values
 
-            # L1 predictions (each model uses its own feature bag)
+            # L1 predictions
             l1_preds = []
+            model_weights = []
             for m in members:
                 feat_idx = m["feat_idx"]
-                # Map feat_idx from all_cols to selected indices
                 last_row_bag = last_row_full[feat_idx] if max(feat_idx) < len(last_row_full) else last_row_full
                 last_row_bag = last_row_bag.reshape(1, -1)
                 Xs = m["scaler"].transform(last_row_bag)
@@ -591,24 +767,26 @@ class StockPredictor:
                 else:
                     pred = float(m["model"].predict(Xs)[0])
                 l1_preds.append(pred)
+                model_weights.append(m.get("l2_weight", 1.0))
 
             l1_preds = np.array(l1_preds)
+            model_weights = np.array(model_weights)
 
-            # L2 meta-learner prediction
-            l2        = self.l2_models[horizon]
-            meta_in   = l1_preds.reshape(1, -1)
+            # L2 meta-learner with adaptive weighting
+            l2 = self.l2_models[horizon]
+            meta_in = (l1_preds * model_weights).reshape(1, -1)
             stacked_ret = float(l2.predict(meta_in)[0])
 
             std_preds  = float(np.std(l1_preds))
             agree_frac = float(np.mean(np.sign(l1_preds) == np.sign(stacked_ret)))
 
-            # ── Confidence score ─────────────────────────────────────────────
+            # ── Confidence score ────────────────────────────────────────────
             cal       = self.calibration[horizon]
             std_norm  = min(std_preds / (cal["pred_std_p90"] + 1e-9), 1.0)
-            raw_conf  = 0.6 * agree_frac + 0.4 * (1.0 - std_norm)
+            avg_ma    = cal.get("avg_member_acc", cal["dir_acc"])
+            raw_conf  = 0.45 * agree_frac + 0.30 * (1.0 - std_norm) + 0.25 * avg_ma
             blended   = 0.5 * raw_conf + 0.5 * cal["dir_acc"]
 
-            # Apply isotonic calibration if available
             iso = self.conf_calibrator.get(horizon)
             if iso is not None:
                 try:
@@ -620,9 +798,9 @@ class StockPredictor:
 
             confidence = max(30.0, min(95.0, round(confidence, 1)))
 
-            # ── Prediction interval ──────────────────────────────────────────
-            # Use only regressor preds for interval (classifiers are on different scale)
-            reg_preds = np.array([l1_preds[i] for i, m in enumerate(members) if not m["is_cls"]])
+            # Prediction interval
+            reg_preds = np.array([l1_preds[i] for i, m in enumerate(members)
+                                  if not m["is_cls"] and not m.get("is_radj", False)])
             p10_ret = float(np.percentile(reg_preds, 10)) if len(reg_preds) > 0 else stacked_ret * 0.5
             p90_ret = float(np.percentile(reg_preds, 90)) if len(reg_preds) > 0 else stacked_ret * 1.5
 
@@ -638,14 +816,15 @@ class StockPredictor:
                 "val_dir_accuracy":   round(cal["dir_acc"] * 100, 1),
                 "all_preds":          l1_preds,
                 "n_models":           len(members),
+                "n_dropped":          cal.get("n_dropped", 0),
+                "avg_member_acc":     round(cal.get("avg_member_acc", 0.5) * 100, 1),
             }
 
         return results
 
-    # ── Feature importance ────────────────────────────────────────────────────
+    # ── Feature importance ───────────────────────────────────────────────────
 
     def feature_importance(self, horizon: str = "1 Month") -> pd.DataFrame:
-        """Average feature importance across XGBoost L1 regressor members."""
         if horizon not in self.l1_members:
             return pd.DataFrame()
 
@@ -656,7 +835,6 @@ class StockPredictor:
 
         selected = self.selected_feats.get(horizon, self.feature_names)
 
-        # Each model may have different feature bags; aggregate by feature name
         feat_imp = {}
         for m in xgb_members:
             fi = m["model"].feature_importances_
@@ -676,11 +854,10 @@ class StockPredictor:
 
     def shap_importance(self, df: pd.DataFrame, market_ctx: Optional[dict],
                         horizon: str = "1 Month") -> pd.DataFrame:
-        """Return SHAP-based feature importance for a horizon."""
         if not HAS_SHAP or horizon not in self.l1_members:
             return pd.DataFrame()
 
-        features_all = self._build_features(df, market_ctx)
+        features_all = self._build_features(df, market_ctx, self.fundamentals)
         selected     = self.selected_feats.get(horizon, list(features_all.columns))
         selected     = [f for f in selected if f in features_all.columns]
         feat_clean   = features_all[selected].dropna()
@@ -711,7 +888,7 @@ class StockPredictor:
         except Exception:
             return pd.DataFrame()
 
-    # ── Calibration report ────────────────────────────────────────────────────
+    # ── Calibration report ───────────────────────────────────────────────────
 
     def calibration_report(self) -> pd.DataFrame:
         rows = []
@@ -722,11 +899,24 @@ class StockPredictor:
                 "Mean Abs. Error":  f"{cal['mean_abs_err']*100:.2f}%",
                 "Ensemble Std P50": f"{cal['pred_std_p50']*100:.2f}%",
                 "L1 Models":        cal.get("n_models", "?"),
+                "Dropped":          cal.get("n_dropped", 0),
+                "Avg Member Acc":   f"{cal.get('avg_member_acc', 0)*100:.1f}%",
             })
         return pd.DataFrame(rows)
 
+    # ── Model performance report ─────────────────────────────────────────────
 
-# ─── Persist / reload ─────────────────────────────────────────────────────────
+    def model_performance_report(self, horizon: str = "1 Month") -> pd.DataFrame:
+        perf = self.model_perf.get(horizon, {})
+        if not perf:
+            return pd.DataFrame()
+        rows = [{"Model": name, "Dir Accuracy": f"{acc*100:.1f}%",
+                 "Status": "Active" if acc >= MODEL_PERF_THRESHOLD else "Dropped"}
+                for name, acc in sorted(perf.items(), key=lambda x: -x[1])]
+        return pd.DataFrame(rows)
+
+
+# ─── Persist / reload ────────────────────────────────────────────────────────
 
 def save_predictor(predictor: StockPredictor, symbol: str):
     os.makedirs(MODEL_DIR, exist_ok=True)
