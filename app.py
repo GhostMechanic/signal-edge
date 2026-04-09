@@ -31,6 +31,7 @@ from backtester import run_backtest, backtest_summary_df
 from analyzer import generate_analysis, RECOMMENDATION_COLORS
 from options_analyzer import generate_options_report
 from regime_detector import detect_regime
+from prediction_logger import log_prediction, get_track_record
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -202,6 +203,24 @@ st.markdown(f"""
 .leg-sell {{ border-left: 3px solid {RED}; background: {RED_DIM}; }}
 .leg-card {{ border-radius: 8px; padding: 12px 14px; margin: 4px 0; }}
 
+/* ── Tooltips ── */
+.tooltip-icon {{
+    display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+    background: {BORDER_ACCENT}; color: {BLUE}; font-size: 0.7rem; font-weight: bold;
+    line-height: 16px; text-align: center; cursor: help; margin-left: 4px;
+    position: relative;
+}}
+.tooltip-icon:hover::after {{
+    content: attr(data-tip); position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%);
+    background: {BG_ELEVATED}; border: 1px solid {BORDER_ACCENT}; color: {TEXT_PRIMARY};
+    padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 400; white-space: nowrap;
+    z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: none;
+}}
+.tooltip-icon:hover::before {{
+    content: ''; position: absolute; bottom: 115%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top: 5px solid {BG_ELEVATED}; z-index: 1000;
+}}
+
 /* ── Streamlit overrides ── */
 .stTabs [data-baseweb="tab-list"] {{
     background: {BG_SURFACE}; border-radius: 10px; padding: 3px; gap: 2px;
@@ -232,6 +251,24 @@ def _rsi_c(r):
 
 def tip(label, text):
     return f"<span class='tip'>{label}<span class='tiptext'>{text}</span></span>"
+
+
+def info_icon(tooltip_text: str) -> str:
+    """Creates an info icon with hover tooltip."""
+    return f"<span class='tooltip-icon' data-tip='{tooltip_text}'>ℹ</span>"
+
+
+def metric_with_tooltip(label: str, value: str, tooltip: str, color: str = TEXT_PRIMARY) -> str:
+    """Renders a metric label with value and info icon tooltip."""
+    return (
+        f"<div style='display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid {BORDER}'>"
+        f"<div style='display:flex;align-items:center;gap:6px'>"
+        f"<span style='color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:500'>{label}</span>"
+        f"{info_icon(tooltip)}"
+        f"</div>"
+        f"<span style='color:{color};font-size:0.85rem;font-weight:700'>{value}</span>"
+        f"</div>"
+    )
 
 
 def _trade_oneliner(strat: dict) -> tuple:
@@ -300,18 +337,20 @@ def _trade_oneliner(strat: dict) -> tuple:
     return (line, dc, cost_short)
 
 TIPS = {
-    "Confidence":  "How consistently the stacked ensemble agrees on direction, calibrated against validated historical accuracy. 70%+ High, 55-70% Medium, <55% Low.",
-    "Dir Acc":     "% of test periods where the model correctly predicted up vs down. Measured on held-out data the model never saw.",
-    "Sharpe":      "Risk-adjusted return. Above 1.0 = good, above 2.0 = excellent.",
-    "Win Rate":    "Of long signals, what % actually went up. 55%+ = meaningful edge.",
-    "PF":          "Gross profit / gross loss. >1.5 = meaningful, >2.0 = strong.",
-    "Max DD":      "Largest peak-to-trough loss. Your worst-case if you followed every signal.",
-    "RSI":         "0-100. >70 overbought (reversal risk). <30 oversold (bounce potential).",
-    "MACD":        "Bullish = short-term trend is strengthening. Bearish = weakening.",
-    "Beta":        "Stock vs market volatility. 1.5 = 50% more volatile than S&P 500.",
-    "IV":          "Estimated implied vol from 21d historical vol × 1.2. Verify with your broker.",
-    "Agreement":   "What % of Level-1 models agree on direction. More consensus = stronger signal.",
-    "WF":          "Model trained on 2yr windows, tested on next 3mo, stepped 1mo at a time. Tests across bull, bear, sideways.",
+    "Confidence":  "Model confidence in prediction (30-95%). Calibrated against ensemble accuracy. Regime-adjusted: lower in bear markets.",
+    "Dir Acc":     "Directional accuracy: % correct up/down predictions on test data the model never saw. 55%+ is meaningful.",
+    "Sharpe":      "Risk-adjusted return. >1.0 = good, >2.0 = excellent. Accounts for drawdowns.",
+    "Win Rate":    "Of buy signals, what % actually went up. 55%+ indicates edge.",
+    "PF":          "Profit factor = gross profit / gross loss. >1.5 = meaningful, >2.0 = strong edge.",
+    "Max DD":      "Largest peak-to-trough loss. Your worst case if you followed every signal.",
+    "RSI":         "Momentum 0-100. >70 overbought (reversal risk). <30 oversold (bounce potential).",
+    "MACD":        "Trend momentum. Bullish = strengthening, Bearish = weakening. Divergence shows weakness.",
+    "Beta":        "Volatility vs S&P 500. 1.5 = 50% more volatile. Higher beta = larger swings.",
+    "IV":          "Implied volatility: 21d historical vol × 1.2. Higher = options more expensive.",
+    "Agreement":   "Model consensus: % of base models agreeing on direction. 100% = unanimous.",
+    "WF":          "Walk-forward backtest: trained on 2yr windows, tested on next 3mo, repeated. Tests all market regimes.",
+    "Regime":      "Current market state (Bull/Bear/Sideways). Affects confidence levels.",
+    "RR":          "Risk/Reward = (target - entry) / (entry - stop). 3:1 or higher is ideal.",
 }
 
 def fmt_mc(mc):
@@ -372,8 +411,8 @@ with st.sidebar:
         help="Any US stock ticker"
     ).upper().strip()
 
-    data_period = st.selectbox("Training History", ["3y","5y","7y","10y"], index=1,
-                               help="More history = more training data. 5y is a good balance of speed & accuracy.")
+    data_period = st.selectbox("Training History", ["3y","5y","7y","10y"], index=3,
+                               help="More history = more diverse market regimes. 10y recommended for best accuracy.")
 
     c1, c2 = st.columns(2)
     with c1: run_bt  = st.checkbox("Backtest", value=False, help="Walk-forward backtest (+1-2 min)")
@@ -401,6 +440,30 @@ with st.sidebar:
         f"</div>", unsafe_allow_html=True)
 
     st.caption("For educational purposes only. Not financial advice.")
+
+    # ── Prediction Track Record ─────────────────────────────────────────────
+    try:
+        track = get_track_record()
+        if track["scored_predictions"] > 0:
+            st.markdown(
+                f"<div style='background:{BG_SURFACE};border:1px solid {BORDER};border-radius:8px;"
+                f"padding:10px 12px;font-size:0.7rem;margin-top:8px'>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.6rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;font-weight:600'>Track Record</div>"
+                f"<div style='color:{GREEN if track['direction_accuracy'] >= 55 else AMBER};font-weight:700;font-size:0.85rem'>"
+                f"{track['direction_accuracy']}% Directional Accuracy</div>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.6rem'>"
+                f"{track['scored_predictions']} scored / {track['total_predictions']} total predictions</div>"
+                f"</div>", unsafe_allow_html=True)
+        elif track["total_predictions"] > 0:
+            st.markdown(
+                f"<div style='background:{BG_SURFACE};border:1px solid {BORDER};border-radius:8px;"
+                f"padding:10px 12px;font-size:0.7rem;margin-top:8px'>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.6rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;font-weight:600'>Track Record</div>"
+                f"<div style='color:{TEXT_SECONDARY};font-size:0.7rem'>"
+                f"{track['total_predictions']} predictions logged · scoring in 7–30 days</div>"
+                f"</div>", unsafe_allow_html=True)
+    except Exception:
+        pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -499,6 +562,12 @@ if analyze_btn and symbol:
         market_ctx=market_ctx,
     )
 
+    # Log prediction for future accuracy tracking
+    try:
+        log_prediction(symbol, predictions)
+    except Exception:
+        pass
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # WELCOME SCREEN
@@ -532,8 +601,78 @@ if st.session_state.results is None:
                 f"<div style='color:{TEXT_SECONDARY};font-size:0.75rem;line-height:1.5'>{dsc}</div>"
                 f"</div>", unsafe_allow_html=True)
 
+    # ── Dashboard: Track Record & Recent Predictions ──────────────────────────
+    st.markdown(f"<div style='margin-top:60px;padding-top:40px;border-top:1px solid {BORDER}'></div>", unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style='text-align:center;margin-bottom:32px'>
+        <div style='color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px'>Track Record</div>
+        <h2 style='color:{TEXT_PRIMARY};font-size:1.8rem;font-weight:700;margin:0'>Prediction Performance</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+    try:
+        track = get_track_record()
+
+        # Summary cards
+        scol1, scol2, scol3, scol4 = st.columns(4)
+
+        with scol1:
+            st.markdown(
+                f"<div class='card-sm' style='text-align:center'>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px'>Total Predictions</div>"
+                f"<div style='color:{TEXT_PRIMARY};font-size:1.6rem;font-weight:800'>{track['total_predictions']}</div>"
+                f"</div>", unsafe_allow_html=True)
+
+        with scol2:
+            dir_acc = track['direction_accuracy']
+            acc_color = GREEN if dir_acc >= 55 else AMBER if dir_acc >= 50 else RED
+            st.markdown(
+                f"<div class='card-sm' style='text-align:center'>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px'>Direction Accuracy</div>"
+                f"<div style='color:{acc_color};font-size:1.6rem;font-weight:800'>{dir_acc:.1f}%</div>"
+                f"</div>", unsafe_allow_html=True)
+
+        with scol3:
+            scored = track['scored_predictions']
+            st.markdown(
+                f"<div class='card-sm' style='text-align:center'>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px'>Scored</div>"
+                f"<div style='color:{TEXT_SECONDARY};font-size:1.6rem;font-weight:800'>{scored}</div>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.65rem;margin-top:4px'>of {track['total_predictions']}</div>"
+                f"</div>", unsafe_allow_html=True)
+
+        with scol4:
+            pending = track['total_predictions'] - scored
+            st.markdown(
+                f"<div class='card-sm' style='text-align:center'>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px'>Pending</div>"
+                f"<div style='color:{TEXT_SECONDARY};font-size:1.6rem;font-weight:800'>{pending}</div>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.65rem;margin-top:4px'>being scored</div>"
+                f"</div>", unsafe_allow_html=True)
+
+        # Recent predictions
+        if track.get('recent'):
+            st.markdown(f"<div style='margin-top:32px'></div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:16px'>Recent Predictions</div>",
+                unsafe_allow_html=True)
+
+            recent_df = pd.DataFrame(track['recent'][:5])
+            if not recent_df.empty:
+                recent_df = recent_df[['symbol', 'date', 'horizon', 'predicted_return', 'actual_return', 'direction_correct']]
+                recent_df.columns = ['Symbol', 'Date', 'Horizon', 'Predicted %', 'Actual %', 'Correct']
+                recent_df['Predicted %'] = recent_df['Predicted %'].apply(lambda x: f"{x*100:+.1f}%" if pd.notna(x) else "—")
+                recent_df['Actual %'] = recent_df['Actual %'].apply(lambda x: f"{x*100:+.1f}%" if pd.notna(x) else "pending")
+                recent_df['Correct'] = recent_df['Correct'].apply(lambda x: "✓" if x is True else "✗" if x is False else "—")
+
+                st.dataframe(recent_df, use_container_width=True, hide_index=True)
+
+    except Exception:
+        pass
+
     st.markdown(
-        f"<p style='text-align:center;color:{TEXT_MUTED};margin-top:28px;font-size:0.82rem'>"
+        f"<p style='text-align:center;color:{TEXT_MUTED};margin-top:48px;font-size:0.82rem'>"
         f"Enter a ticker and click <b style='color:{TEXT_SECONDARY}'>Run Analysis</b></p>",
         unsafe_allow_html=True)
     st.stop()
@@ -581,7 +720,7 @@ with id_col:
         f"<span style='color:{TEXT_SECONDARY};font-size:0.75rem'>{info.get('sector','')} · {info.get('industry','')}</span><br>"
         f"<span style='color:{TEXT_PRIMARY};font-size:1.4rem;font-weight:900'>{info.get('name', symbol)}</span>"
         f"  <code style='font-size:0.78rem;background:{BG_ELEVATED};padding:2px 8px;border-radius:4px;color:{TEXT_SECONDARY}'>{symbol}</code>"
-        f"  <span class='regime-chip' style='background:{rbg};color:{rcolor};border:1px solid {rcolor}30'>{ricon} {rlabel}</span>"
+        f"  <span class='regime-chip' style='position:relative;background:{rbg};color:{rcolor};border:1px solid {rcolor}30;padding:4px 8px;border-radius:4px;display:inline-block;cursor:help'>{ricon} {rlabel}{info_icon(TIPS['Regime'])}</span>"
         f"</div>", unsafe_allow_html=True)
 
 with price_col:
@@ -619,12 +758,12 @@ with hero_col:
         f"<div style='color:{TEXT_MUTED};font-size:0.7rem;margin:6px 0 16px;text-transform:uppercase;letter-spacing:2px;font-weight:600'>1-Month ML Signal</div>"
         f"<div style='display:flex;justify-content:center;gap:28px'>"
         f"<div>"
-        f"<div style='color:{TEXT_MUTED};font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;font-weight:600'>Confidence <span class='info-icon' style='font-size:0.65rem;color:{TEXT_MUTED}'>ⓘ<span class='info-tip'>{TIPS['Confidence']}</span></span></div>"
+        f"<div style='color:{TEXT_MUTED};font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;font-weight:600'>Confidence {info_icon(TIPS['Confidence'])}</div>"
         f"<div style='color:{_cc(conf1m)};font-size:2.2rem;font-weight:900;line-height:1.2'>{conf1m:.0f}<span style='font-size:0.9rem'>%</span></div>"
         f"</div>"
         f"<div style='width:1px;background:{BORDER}'></div>"
         f"<div>"
-        f"<div style='color:{TEXT_MUTED};font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;font-weight:600'>Agreement <span class='info-icon' style='font-size:0.65rem;color:{TEXT_MUTED}'>ⓘ<span class='info-tip'>{TIPS['Agreement']}</span></span></div>"
+        f"<div style='color:{TEXT_MUTED};font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;font-weight:600'>Agreement {info_icon(TIPS['Agreement'])}</div>"
         f"<div style='color:{TEXT_PRIMARY};font-size:2.2rem;font-weight:900;line-height:1.2'>{predictions['1 Month']['ensemble_agreement']:.0f}<span style='font-size:0.9rem'>%</span></div>"
         f"</div>"
         f"</div>"
@@ -699,6 +838,72 @@ for col_h, h in zip([h1,h2,h3,h4], ["1 Week","1 Month","1 Quarter","1 Year"]):
             else:
                 st.markdown(f"<div style='color:{TEXT_MUTED};font-size:0.78rem'>No strategy available for this horizon.</div>",
                             unsafe_allow_html=True)
+
+
+# ── Why This Recommendation? ──────────────────────────────────────────────────
+with st.expander("📊 Why This Recommendation?", expanded=False):
+    rec_col1, rec_col2 = st.columns(2)
+
+    with rec_col1:
+        st.markdown(f"<div style='color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;text-transform:uppercase;margin-bottom:12px'>Model Confidence Breakdown</div>", unsafe_allow_html=True)
+
+        # Show regime impact
+        if regime_info:
+            rlbl = regime_info.get("label", "Sideways")
+            rsc = regime_info.get("score_norm", 0.5)
+            st.markdown(
+                f"<div style='background:{BG_CARD};border:1px solid {BORDER};border-radius:8px;padding:12px'>"
+                f"<div style='color:{TEXT_SECONDARY};font-size:0.7rem;margin-bottom:6px'>🔄 Current Regime</div>"
+                f"<div style='color:{TEXT_PRIMARY};font-weight:700;margin-bottom:4px'>{rlbl} Market</div>"
+                f"<div style='color:{TEXT_MUTED};font-size:0.7rem'>Confidence adjusted {'down' if rlbl!='Bull' else 'normally'} for {rlbl} regime.</div>"
+                f"</div>", unsafe_allow_html=True)
+
+        # Prediction confidence
+        p1m = predictions.get("1 Month", {})
+        ensemble_agree = p1m.get('ensemble_agreement', 0)
+        hist_acc = p1m.get('val_dir_accuracy', 0)
+        ensemble_agree_color = _cc(ensemble_agree) if ensemble_agree else TEXT_SECONDARY
+        st.markdown(
+            f"<div style='background:{BG_CARD};border:1px solid {BORDER};border-radius:8px;padding:12px;margin-top:8px'>"
+            f"<div style='color:{TEXT_SECONDARY};font-size:0.7rem;margin-bottom:6px'>🎯 Prediction Factors</div>"
+            f"<div style='display:flex;justify-content:space-between;margin:4px 0;font-size:0.75rem'>"
+            f"<span>Ensemble Agreement:</span><span style='color:{ensemble_agree_color};font-weight:700'>{ensemble_agree:.0f}%</span>"
+            f"</div>"
+            f"<div style='display:flex;justify-content:space-between;margin:4px 0;font-size:0.75rem'>"
+            f"<span>Historical Accuracy:</span><span style='color:{GREEN};font-weight:700'>{hist_acc:.1f}%</span>"
+            f"</div>"
+            f"<div style='display:flex;justify-content:space-between;margin:4px 0;font-size:0.75rem'>"
+            f"<span>Final Confidence:</span><span style='color:{_cc(conf1m)};font-weight:700'>{conf1m:.0f}%</span>"
+            f"</div>"
+            f"</div>", unsafe_allow_html=True)
+
+    with rec_col2:
+        st.markdown(f"<div style='color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;text-transform:uppercase;margin-bottom:12px'>Signal Strength</div>", unsafe_allow_html=True)
+
+        # Technical signals agreement
+        bull_n = sum(1 for s in analysis["signals"] if s[1]=="Bullish")
+        bear_n = sum(1 for s in analysis["signals"] if s[1]=="Bearish")
+        total  = len(analysis["signals"])
+
+        st.markdown(
+            f"<div style='background:{BG_CARD};border:1px solid {BORDER};border-radius:8px;padding:12px'>"
+            f"<div style='color:{TEXT_SECONDARY};font-size:0.7rem;margin-bottom:6px'>📈 Technical Consensus</div>"
+            f"<div style='display:flex;gap:8px;margin-bottom:8px'>"
+            f"<div style='flex:1;text-align:center'>"
+            f"<div style='color:{GREEN};font-weight:700;font-size:0.95rem'>{bull_n}</div>"
+            f"<div style='color:{TEXT_MUTED};font-size:0.65rem'>Bullish</div>"
+            f"</div>"
+            f"<div style='flex:1;text-align:center'>"
+            f"<div style='color:{AMBER};font-weight:700;font-size:0.95rem'>{total-bull_n-bear_n}</div>"
+            f"<div style='color:{TEXT_MUTED};font-size:0.65rem'>Neutral</div>"
+            f"</div>"
+            f"<div style='flex:1;text-align:center'>"
+            f"<div style='color:{RED};font-weight:700;font-size:0.95rem'>{bear_n}</div>"
+            f"<div style='color:{TEXT_MUTED};font-size:0.65rem'>Bearish</div>"
+            f"</div>"
+            f"</div>"
+            f"<div style='color:{TEXT_MUTED};font-size:0.7rem;line-height:1.5'>ML model weights these signals differently than equal voting.</div>"
+            f"</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

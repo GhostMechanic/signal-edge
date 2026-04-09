@@ -142,6 +142,141 @@ def fetch_fundamentals(symbol: str) -> dict:
         return {}
 
 
+def fetch_earnings_data(symbol: str) -> dict:
+    """
+    Fetch earnings calendar and historical beat/miss rates.
+    Returns dict with:
+      - days_to_next_earnings: days until next scheduled earnings
+      - last_beat: 1 if last earnings beat, -1 if missed, 0 if unknown
+      - beat_rate_ytd: % of earnings beats in YTD (0-1)
+      - surprise_pct: most recent EPS surprise %
+    """
+    try:
+        tk = yf.Ticker(symbol)
+        info = tk.info or {}
+
+        # Days to next earnings
+        calendar = tk.calendar
+        if calendar is not None and 'Earnings Date' in calendar.index:
+            earnings_date = calendar.loc['Earnings Date', 0]
+            if pd.notna(earnings_date):
+                days_to_earnings = (earnings_date - datetime.now()).days
+            else:
+                days_to_earnings = float('nan')
+        else:
+            days_to_earnings = float('nan')
+
+        # Historical earnings info from yfinance
+        earnings_history = tk.quarterly_financials  # Would need earnings_dates for better data
+
+        return {
+            "days_to_next_earnings": days_to_earnings if not np.isnan(days_to_earnings) else float('nan'),
+            "last_beat": float('nan'),  # Requires detailed earnings history
+            "beat_rate_ytd": float('nan'),  # Requires detailed earnings history
+            "surprise_pct": float('nan'),  # Requires earnings surprises data
+        }
+    except Exception:
+        return {
+            "days_to_next_earnings": float('nan'),
+            "last_beat": float('nan'),
+            "beat_rate_ytd": float('nan'),
+            "surprise_pct": float('nan'),
+        }
+
+
+def fetch_options_data(symbol: str, current_price: float) -> dict:
+    """
+    Fetch options chain and derive market signals:
+      - iv_percentile: IV percentile (0-1)
+      - put_call_ratio: puts / calls by open interest
+      - call_put_vol_ratio: calls / puts by volume
+      - max_pain: level where max options expire worthless
+      - atm_iv: at-the-money implied volatility
+      - skew: put IV / call IV (tail risk indicator)
+    """
+    try:
+        tk = yf.Ticker(symbol)
+        options_chain = tk.options
+
+        if not options_chain:
+            return {
+                "iv_percentile": float('nan'),
+                "put_call_ratio": float('nan'),
+                "call_put_vol_ratio": float('nan'),
+                "max_pain": float('nan'),
+                "atm_iv": float('nan'),
+                "skew": float('nan'),
+            }
+
+        # Get nearest-term expiration (usually most liquid)
+        nearest_exp = options_chain[0]
+        opt = tk.option_chain(nearest_exp)
+        calls = opt.calls
+        puts = opt.puts
+
+        # Calculate put/call ratio by open interest
+        if not (calls.empty or puts.empty):
+            total_call_oi = calls['openInterest'].sum()
+            total_put_oi = puts['openInterest'].sum()
+            put_call_ratio = total_put_oi / (total_call_oi + 1e-9)
+
+            # Call/put volume ratio
+            total_call_vol = calls['volume'].sum()
+            total_put_vol = puts['volume'].sum()
+            call_put_vol_ratio = total_call_vol / (total_put_vol + 1e-9)
+
+            # ATM implied volatility (close to current price)
+            atm_calls = calls[np.abs(calls['strike'] - current_price) < current_price * 0.05]
+            atm_iv = float(atm_calls['impliedVolatility'].mean()) if not atm_calls.empty else float('nan')
+
+            # IV skew: put IV / call IV for same strike (tail risk)
+            merged = calls[['strike', 'impliedVolatility']].merge(
+                puts[['strike', 'impliedVolatility']], on='strike', suffixes=('_call', '_put')
+            )
+            if not merged.empty:
+                skew = (merged['impliedVolatility_put'] / (merged['impliedVolatility_call'] + 1e-9)).mean()
+            else:
+                skew = float('nan')
+
+            # Max pain (simplified: strike with highest OI)
+            all_oi = pd.concat([
+                calls[['strike', 'openInterest']].assign(type='call'),
+                puts[['strike', 'openInterest']].assign(type='put')
+            ])
+            if not all_oi.empty:
+                max_pain = float(all_oi.loc[all_oi['openInterest'].idxmax(), 'strike'])
+            else:
+                max_pain = float('nan')
+
+        else:
+            put_call_ratio = float('nan')
+            call_put_vol_ratio = float('nan')
+            atm_iv = float('nan')
+            skew = float('nan')
+            max_pain = float('nan')
+
+        # IV percentile (simplified: use ATM IV as proxy, would need historical IV for true percentile)
+        iv_percentile = float('nan')  # Requires IV history
+
+        return {
+            "iv_percentile": iv_percentile,
+            "put_call_ratio": put_call_ratio,
+            "call_put_vol_ratio": call_put_vol_ratio,
+            "max_pain": max_pain,
+            "atm_iv": atm_iv,
+            "skew": skew,
+        }
+    except Exception:
+        return {
+            "iv_percentile": float('nan'),
+            "put_call_ratio": float('nan'),
+            "call_put_vol_ratio": float('nan'),
+            "max_pain": float('nan'),
+            "atm_iv": float('nan'),
+            "skew": float('nan'),
+        }
+
+
 def _fetch_series(symbol: str, period: str = "7y") -> pd.Series:
     """Fetch a single close-price series; return empty Series on failure."""
     try:
@@ -224,11 +359,15 @@ def engineer_features(
     vix_close: Optional[pd.Series] = None,
     sector_close: Optional[pd.Series] = None,
     fundamentals: Optional[dict] = None,
+    earnings_data: Optional[dict] = None,
+    options_data: Optional[dict] = None,
 ) -> pd.DataFrame:
     """
     Build feature matrix. spy_close / vix_close / sector_close are optional
     enrichment series aligned to df's index.
     fundamentals: optional dict of scalar fundamental values to broadcast.
+    earnings_data: optional dict with earnings metrics (days_to_earnings, etc.)
+    options_data: optional dict with options-derived metrics (IV, put/call ratio, etc.)
     """
     close  = df["Close"]
     volume = df["Volume"]
@@ -494,6 +633,75 @@ def engineer_features(
             feats["short_interest"] = short_pct
         else:
             feats["short_interest"] = 0.0
+
+    # ── Earnings features (scalar, broadcast across all rows) ────────────────
+    if earnings_data and isinstance(earnings_data, dict):
+        # Days to next earnings (divide by 252 to normalize)
+        dte = earnings_data.get("days_to_next_earnings", float("nan"))
+        if dte and not np.isnan(dte):
+            feats["days_to_earnings"] = dte
+            feats["earnings_proximity"] = 1.0 / (1.0 + abs(dte) / 30.0)  # closer = higher value
+        else:
+            feats["days_to_earnings"] = 0.0
+            feats["earnings_proximity"] = 0.5  # neutral if unknown
+
+        # Beat/miss history
+        beat_rate = earnings_data.get("beat_rate_ytd", float("nan"))
+        if beat_rate and not np.isnan(beat_rate):
+            feats["earnings_beat_rate"] = beat_rate
+        else:
+            feats["earnings_beat_rate"] = 0.5  # neutral default
+
+        last_beat = earnings_data.get("last_beat", float("nan"))
+        if last_beat and not np.isnan(last_beat):
+            feats["last_earnings_beat"] = last_beat  # 1 = beat, -1 = miss, 0 = neutral
+        else:
+            feats["last_earnings_beat"] = 0.0
+
+        # Surprise magnitude
+        surprise = earnings_data.get("surprise_pct", float("nan"))
+        if surprise and not np.isnan(surprise):
+            feats["earnings_surprise_pct"] = surprise
+        else:
+            feats["earnings_surprise_pct"] = 0.0
+
+    # ── Options market features (scalar, broadcast across all rows) ─────────
+    if options_data and isinstance(options_data, dict):
+        # Implied volatility
+        iv = options_data.get("atm_iv", float("nan"))
+        if iv and not np.isnan(iv):
+            feats["options_atm_iv"] = iv
+        else:
+            feats["options_atm_iv"] = 0.0
+
+        # Put/call ratio (elevated = bearish, depressed = bullish)
+        pc_ratio = options_data.get("put_call_ratio", float("nan"))
+        if pc_ratio and not np.isnan(pc_ratio):
+            feats["options_put_call_ratio"] = pc_ratio
+        else:
+            feats["options_put_call_ratio"] = 1.0  # neutral
+
+        # Call/put volume ratio (inverse: high vol ratio = bullish)
+        cpvol_ratio = options_data.get("call_put_vol_ratio", float("nan"))
+        if cpvol_ratio and not np.isnan(cpvol_ratio):
+            feats["options_call_put_vol"] = cpvol_ratio
+        else:
+            feats["options_call_put_vol"] = 1.0  # neutral
+
+        # Max pain (distance from current price indicates consensus target)
+        cur_price = float(close.iloc[-1]) if len(close) > 0 else 1.0
+        max_pain = options_data.get("max_pain", float("nan"))
+        if max_pain and not np.isnan(max_pain) and cur_price > 0:
+            feats["options_max_pain_diff"] = (max_pain - cur_price) / cur_price
+        else:
+            feats["options_max_pain_diff"] = 0.0
+
+        # IV skew (elevated put IV relative to call = tail risk premium)
+        skew = options_data.get("skew", float("nan"))
+        if skew and not np.isnan(skew):
+            feats["options_iv_skew"] = skew
+        else:
+            feats["options_iv_skew"] = 1.0  # neutral
 
     return feats
 

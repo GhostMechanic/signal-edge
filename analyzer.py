@@ -96,25 +96,58 @@ def generate_analysis(
     # ── Support / Resistance ──────────────────────────────────────────────────
     sr = find_support_resistance(df)
 
-    # Entry zone: between closest support and current price (±0.5 %)
-    entry_low  = sr["supports"][0] if sr["supports"] else round(current_price * 0.97, 2)
-    entry_high = round(current_price * 1.005, 2)
+    # ── Volatility-based stop-loss & target calculation ──────────────────────
+    # Calculate ATR (Average True Range) for dynamic stop-loss placement
+    lookback = min(20, len(df) - 1)
+    high = df["High"].iloc[-lookback:].values
+    low = df["Low"].iloc[-lookback:].values
+    close = df["Close"].iloc[-lookback:].values
+    prev_close = df["Close"].iloc[-lookback-1:-1].values if len(df) > lookback else close
+    tr = np.maximum(high - low, np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)))
+    atr = float(np.mean(tr)) if len(tr) > 0 else 0.02 * current_price
+    atr_pct = atr / current_price
 
-    # Stop-loss: just below the second support level (or 5 % below entry)
+    # Use 1-month prediction to set target
+    one_month_pred = predictions.get("1 Month", {})
+    pred_return = one_month_pred.get("predicted_return", 0.0)
+    pred_price = one_month_pred.get("predicted_price", current_price)
+
+    # Entry zone: support level to current price for bullish, current to resistance for bearish
+    entry_low  = sr["supports"][0] if sr["supports"] else round(current_price * (1 - 2*atr_pct), 2)
+    entry_high = round(current_price * 1.005, 2)  # very tight at current
+
+    # Stop-loss: 1 ATR below the lower support (risk per share = ATR + buffer)
     if len(sr["supports"]) >= 2:
-        stop_loss = round(sr["supports"][1] * 0.995, 2)
+        stop_loss = round(sr["supports"][1] - atr * 0.5, 2)
     else:
-        stop_loss = round(current_price * 0.95, 2)
+        stop_loss = round(entry_low - atr, 2)
 
-    # First resistance target
-    first_target = sr["resistances"][0] if sr["resistances"] else round(current_price * 1.05, 2)
+    # Target: use ML prediction if available, otherwise use resistance + ATR multiple
+    if pred_return > 0.02:  # If model predicts positive
+        # Target = predicted price OR first resistance + buffer, whichever is higher
+        target_from_pred = pred_price
+        target_from_sr   = sr["resistances"][0] if sr["resistances"] else round(current_price * (1 + 3*atr_pct), 2)
+        first_target = max(target_from_pred, target_from_sr)
+    else:
+        # Conservative: use first resistance or 1.5x ATR move
+        first_target = sr["resistances"][0] if sr["resistances"] else round(current_price + atr * 1.5, 2)
+
+    # Calculate risk/reward ratio (reward / risk)
+    risk = entry_high - stop_loss
+    reward = first_target - entry_low  # Use best entry for target calculation
+    if risk > 0:
+        rr = round(reward / risk, 2)
+    else:
+        rr = 0
 
     entry_zone = {
         "entry_low":     entry_low,
         "entry_high":    entry_high,
         "stop_loss":     stop_loss,
         "first_target":  first_target,
-        "risk_reward":   _risk_reward(entry_high, stop_loss, first_target),
+        "risk_reward":   rr,
+        "atr":           round(atr, 2),
+        "atr_pct":       round(atr_pct * 100, 1),
         "supports":      sr["supports"],
         "resistances":   sr["resistances"],
     }
@@ -315,10 +348,11 @@ def _build_narrative(
     lines.append(f"\n**Signal Summary:** {bull} bullish vs {bear} bearish signals across technical indicators.")
 
     if entry_zone["risk_reward"] and entry_zone["risk_reward"] > 0:
+        atr_info = f" (ATR: ${entry_zone['atr']:.2f} / {entry_zone['atr_pct']:.1f}%)" if "atr" in entry_zone else ""
         lines.append(f"\n**Entry Zone:** ${entry_zone['entry_low']:.2f} – ${entry_zone['entry_high']:.2f} "
-                     f"with a stop-loss at ${entry_zone['stop_loss']:.2f} "
-                     f"and initial target at ${entry_zone['first_target']:.2f} "
-                     f"(risk/reward ratio: {entry_zone['risk_reward']:.1f}×).")
+                     f"with stop-loss at ${entry_zone['stop_loss']:.2f} "
+                     f"and target at ${entry_zone['first_target']:.2f} "
+                     f"(ratio: {entry_zone['risk_reward']:.1f}×){atr_info}.")
 
     if beta:
         lines.append(f"\n**Risk:** Beta is {beta:.2f}, meaning this stock is "
@@ -331,11 +365,3 @@ def _build_narrative(
     return "\n".join(lines)
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-
-def _risk_reward(entry, stop, target):
-    risk   = entry - stop
-    reward = target - entry
-    if risk <= 0:
-        return None
-    return round(reward / risk, 2)

@@ -1,0 +1,202 @@
+[
+  {
+    "symbol": "WULF",
+    "timestamp": "2026-04-09T12:00:26.201189",
+    "horizons": {
+      "1 Week": {
+        "predicted_return": 0.0313,
+        "predicted_price": 19.73,
+        "current_price": 19.13,
+        "confidence": 48.1,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Month": {
+        "predicted_return": 0.2379,
+        "predicted_price": 23.69,
+        "current_price": 19.13,
+        "confidence": 66.6,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Quarter": {
+        "predicted_return": 0.2203,
+        "predicted_price": 23.35,
+        "current_price": 19.13,
+        "confidence": 79.7,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Year": {
+        "predicted_return": 0.8953,
+        "predicted_price": 36.27,
+        "current_price": 19.13,
+        "confidence": 93.5,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      }
+    }
+  },
+  {
+    "symbol": "WULF",
+    "timestamp": "2026-04-09T12:30:21.137080",
+    "horizons": {
+      "1 Week": {
+        "predicted_return": 0.0324,
+        "predicted_price": 20.05,
+        "current_price": 19.42,
+        "confidence": 48.1,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Month": {
+        "predicted_return": 0.3287,
+        "predicted_price": 25.81,
+        "current_price": 19.42,
+        "confidence": 76.9,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Quarter": {
+        "predicted_return": 0.2624,
+        "predicted_price": 24.52,
+        "current_price": 19.42,
+        "confidence": 79.2,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Year": {
+        "predicted_return": 0.8767,
+        "predicted_price": 36.45,
+        "current_price": 19.42,
+        "confidence": 93.5,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      }
+    }
+  },
+  {
+    "symbol": "GOOG",
+    "timestamp": "2026-04-09T14:09:52.685276",
+    "horizons": {
+      "1 Week": {
+        "predicted_return": 0.0031,
+        "predicted_price": 317.16,
+        "current_price": 316.19,
+        "confidence": 60.9,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Month": {
+        "predicted_return": 0.0336,
+        "predicted_price": 326.8,
+        "current_price": 316.19,
+        "confidence": 65.1,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Quarter": {
+        "predicted_return": 0.1491,
+        "predicted_price": 363.33,
+        "current_price": 316.19,
+        "confidence": 82.9,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Year": {
+        "predicted_return": 0.3185,
+        "predicted_price": 416.89,
+        "current_price": 316.19,
+        "confidence": 94.3,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      }
+    }
+  },
+  {
+    "symbol": "GOOG",
+    "timestamp": "2026-04-09T14:10:21.635684",
+    "horizons": {
+      "1 Week": {
+        "predicted_return": -0.0031,
+        "predicted_price": 315.49,
+        "current_price": 316.49,
+        "confidence": 66.4,
+        "direction": "down",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Month": {
+        "predicted_return": 0.0845,
+        "predicted_price": 343.22,
+        "current_price": 316.49,
+        "confidence": 74.7,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Quarter": {
+        "predicted_return": 0.1596,
+        "predicted_price": 367.01,
+        "current_price": 316.49,
+        "confidence": 95.0,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      },
+      "1 Year": {
+        "predicted_return": 0.9859,
+        "predicted_price": 628.51,
+        "current_price": 316.49,
+        "confidence": 95.0,
+        "direction": "up",
+        "scored": false,
+        "actual_price": null,
+        "actual_return": null,
+        "direction_correct": null
+      }
+    }
+  }
+]

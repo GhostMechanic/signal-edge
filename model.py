@@ -328,13 +328,16 @@ class StockPredictor:
         df: pd.DataFrame,
         market_ctx: Optional[dict] = None,
         fundamentals: Optional[dict] = None,
+        earnings_data: Optional[dict] = None,
+        options_data: Optional[dict] = None,
     ) -> pd.DataFrame:
         spy = market_ctx.get("spy") if market_ctx else None
         vix = market_ctx.get("vix") if market_ctx else None
         sec = market_ctx.get("sector") if market_ctx else None
 
         base  = engineer_features(df, spy_close=spy, vix_close=vix,
-                                   sector_close=sec, fundamentals=fundamentals)
+                                   sector_close=sec, fundamentals=fundamentals,
+                                   earnings_data=earnings_data, options_data=options_data)
         reg   = regime_features(df, spy_close=spy, vix_close=vix)
         combined = pd.concat([base, reg], axis=1)
         combined = combined.loc[:, ~combined.columns.duplicated()]
@@ -355,6 +358,8 @@ class StockPredictor:
         df: pd.DataFrame,
         market_ctx: Optional[dict] = None,
         fundamentals: Optional[dict] = None,
+        earnings_data: Optional[dict] = None,
+        options_data: Optional[dict] = None,
         use_shap:   bool = False,
         use_optuna: bool = False,
         progress_callback = None,
@@ -364,7 +369,9 @@ class StockPredictor:
             raise ValueError(f"Need at least {MIN_TRAIN} trading days (got {len(df)}).")
 
         self.fundamentals = fundamentals
-        features_all = self._build_features(df, market_ctx, fundamentals)
+        self.earnings_data = earnings_data
+        self.options_data = options_data
+        features_all = self._build_features(df, market_ctx, fundamentals, earnings_data, options_data)
         targets      = create_targets(df)
         self.feature_names = list(features_all.columns)
 
@@ -655,32 +662,50 @@ class StockPredictor:
             meta_X = np.column_stack(kept_oof)
 
             # Adaptive: weight each L1 model's column by its dir accuracy
-            # This makes the Ridge focus more on models that got direction right
             model_weights = np.clip(kept_dir_acc - 0.45, 0.05, 1.0)
             model_weights = model_weights / model_weights.mean()
             meta_X_weighted = meta_X * model_weights[np.newaxis, :]
 
+            # ── Honest walk-forward accuracy (no data leakage) ──────────────
+            # Split validation into L2-train and L2-test halves.
+            # L2 trains on first half, accuracy measured on second half.
+            # Then retrain L2 on FULL validation for actual predictions.
+            _prog(f"[{horizon}] Walk-forward validation…")
+            val_mid = len(y_va) // 2
+            if val_mid > 20:
+                # L2 trained on first half of val only
+                l2_probe = Ridge(alpha=1.0)
+                l2_probe.fit(meta_X_weighted[:val_mid], y_va[:val_mid])
+                # Test on truly unseen second half
+                probe_preds = l2_probe.predict(meta_X_weighted[val_mid:])
+                oos_dir_correct = (np.sign(probe_preds) == np.sign(y_va[val_mid:])).astype(float)
+                val_dir_acc = float(oos_dir_correct.mean())
+            else:
+                # Not enough data for proper split — use L1 OOF accuracy instead
+                l1_avg_preds = np.mean(meta_X, axis=1)
+                oos_dir_correct = (np.sign(l1_avg_preds) == np.sign(y_va)).astype(float)
+                val_dir_acc = float(oos_dir_correct.mean())
+
+            # Now train final L2 on FULL validation for actual predictions
             l2_model = Ridge(alpha=1.0)
             l2_model.fit(meta_X_weighted, y_va)
 
-            # ── Cross-validated isotonic calibration ─────────────────────────
+            # ── Calibration ─────────────────────────────────────────────────
             _prog(f"[{horizon}] Calibrating confidence…")
             meta_preds   = l2_model.predict(meta_X_weighted)
             errors       = np.abs(meta_preds - y_va)
             per_pred_std = np.std(meta_X, axis=1)
 
             dir_correct = (np.sign(meta_preds) == np.sign(y_va)).astype(float)
-            val_dir_acc = float(dir_correct.mean())
 
-            # CV isotonic: split val into 2 folds for calibration
             std_norm   = np.clip(per_pred_std / (np.percentile(per_pred_std, 90) + 1e-9), 0, 1)
             agree_frac = np.array([
                 float(np.mean(np.sign(meta_X[j]) == np.sign(meta_preds[j])))
                 for j in range(len(meta_preds))
             ])
 
-            # Enhanced raw confidence: include model quality signal
             avg_member_acc = float(kept_dir_acc.mean())
+            # Use honest OOS accuracy (val_dir_acc) not in-sample dir_correct
             raw_conf = (0.45 * agree_frac
                        + 0.30 * (1 - std_norm)
                        + 0.25 * avg_member_acc)
@@ -696,12 +721,9 @@ class StockPredictor:
                 if mid > 10:
                     iso1.fit(blended[:mid], dir_correct[:mid])
                     iso2.fit(blended[mid:], dir_correct[mid:])
-                    # Average the two calibrators' predictions
                     cal1 = iso1.predict(blended)
                     cal2 = iso2.predict(blended)
                     avg_cal = (cal1 + cal2) / 2
-
-                    # Refit on full data using averaged as guide
                     iso_final = IsotonicRegression(y_min=0.30, y_max=0.95, out_of_bounds="clip")
                     iso_final.fit(blended, avg_cal)
                     self.conf_calibrator[horizon] = iso_final
@@ -715,7 +737,7 @@ class StockPredictor:
             self.calibration[horizon] = {
                 "mean_abs_err":    float(np.mean(errors)),
                 "std_abs_err":     float(np.std(errors)),
-                "dir_acc":         val_dir_acc,
+                "dir_acc":         val_dir_acc,     # honest OOS accuracy
                 "pred_std_p50":    float(np.percentile(per_pred_std, 50)),
                 "pred_std_p90":    float(np.percentile(per_pred_std, 90)),
                 "n_models":        len(kept_members),
@@ -751,7 +773,8 @@ class StockPredictor:
         if not self.is_trained:
             raise RuntimeError("Call .train() first.")
 
-        features_all = self._build_features(df, market_ctx, self.fundamentals)
+        features_all = self._build_features(df, market_ctx, self.fundamentals,
+                                              self.earnings_data, self.options_data)
         results      = {}
 
         spy = market_ctx.get("spy") if market_ctx else None
@@ -849,7 +872,7 @@ class StockPredictor:
             std_preds  = float(np.std(l1_preds))
             agree_frac = float(np.mean(np.sign(l1_preds) == np.sign(stacked_ret)))
 
-            # ── Confidence score ────────────────────────────────────────────
+            # ── Confidence score (regime-aware) ─────────────────────────────
             cal       = self.calibration[horizon]
             std_norm  = min(std_preds / (cal["pred_std_p90"] + 1e-9), 1.0)
             avg_ma    = cal.get("avg_member_acc", cal["dir_acc"])
@@ -864,6 +887,19 @@ class StockPredictor:
                     confidence = blended * 100
             else:
                 confidence = blended * 100
+
+            # Regime-aware adjustment: reduce confidence in bear or
+            # sideways regimes since model was likely trained on more bull data
+            if self.regime_cache:
+                regime = self.regime_cache.get("label", "Sideways")
+                score  = self.regime_cache.get("score_norm", 0.5)
+                if regime == "Bear":
+                    confidence *= 0.80    # 20% confidence penalty in bear markets
+                elif regime == "Sideways":
+                    confidence *= 0.90    # 10% penalty in sideways (noisy)
+                # Additional penalty if regime score is extreme (very bearish)
+                if score < 0.25:
+                    confidence *= 0.85    # extra 15% penalty if deeply bearish
 
             confidence = max(30.0, min(95.0, round(confidence, 1)))
 
