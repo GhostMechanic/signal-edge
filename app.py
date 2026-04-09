@@ -817,6 +817,8 @@ with tab_chart:
 
     target_styles = {"1 Week":("#67e8f9","dot"),"1 Month":("#fde68a","dash"),"1 Quarter":("#fca5a5","dashdot"),"1 Year":("#c4b5fd","longdash")}
     for h, (hc, hd) in target_styles.items():
+        if h not in predictions:
+            continue
         tp = predictions[h]["predicted_price"]
         if abs(tp - cur) / cur < 0.5:
             fig.add_hline(y=tp, line=dict(color=hc, width=1, dash=hd),
@@ -929,6 +931,9 @@ with tab_opts:
     opt_tabs = st.tabs(list(HORIZONS.keys()))
     for opt_tab, h in zip(opt_tabs, HORIZONS.keys()):
         with opt_tab:
+            if h not in predictions:
+                st.info(f"Not enough training data for {h} predictions with the selected history window. Try 5y or 10y.")
+                continue
             opt    = options.get(h, {})
             pred_h = predictions[h]
 
