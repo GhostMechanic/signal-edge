@@ -23,7 +23,8 @@ from plotly.subplots import make_subplots
 
 from data_fetcher import (
     fetch_stock_data, fetch_stock_info, fetch_market_context,
-    fetch_fundamentals, engineer_features, HORIZONS,
+    fetch_fundamentals, fetch_earnings_data, fetch_options_data,
+    engineer_features, HORIZONS,
 )
 from model import StockPredictor, HAS_LGB, HAS_SHAP, HAS_OPTUNA
 from backtester import run_backtest, backtest_summary_df
@@ -338,6 +339,14 @@ def _cached_fetch_market(period: str, sector: str):
 def _cached_fetch_fundamentals(symbol: str):
     return fetch_fundamentals(symbol)
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_fetch_earnings(symbol: str):
+    return fetch_earnings_data(symbol)
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_fetch_options(symbol: str, current_price: float):
+    return fetch_options_data(symbol, current_price)
+
 def rsi_series(close):
     d = close.diff()
     g = d.clip(lower=0).ewm(com=13, min_periods=14).mean()
@@ -427,11 +436,22 @@ if analyze_btn and symbol:
             except Exception:
                 pass
 
-        st.write("Fetching fundamentals…")
+        st.write("Fetching fundamentals, earnings & options data…")
         try:
             fundamentals = _cached_fetch_fundamentals(symbol)
         except Exception:
             fundamentals = {}
+
+        try:
+            earnings = _cached_fetch_earnings(symbol)
+        except Exception:
+            earnings = {}
+
+        try:
+            current_price = float(df["Close"].iloc[-1])
+            options_mkt = _cached_fetch_options(symbol, current_price)
+        except Exception:
+            options_mkt = {}
 
         n_mdls = 16 if HAS_LGB else 13
         st.write(f"Training {n_mdls}-model stacked ensemble (v5)…")
@@ -441,6 +461,7 @@ if analyze_btn and symbol:
         try:
             predictor   = StockPredictor(symbol)
             predictor.train(df, market_ctx=market_ctx, fundamentals=fundamentals,
+                            earnings_data=earnings, options_data=options_mkt,
                             use_shap=use_shap, use_optuna=use_optuna,
                             progress_callback=upd)
             predictions = predictor.predict(df, market_ctx=market_ctx)
@@ -462,7 +483,9 @@ if analyze_btn and symbol:
             bt_prog = st.progress(0)
             def bt_cb(f, msg): bt_prog.progress(min(float(f), 1.0))
             try:
-                bt_results = run_backtest(df, market_ctx=market_ctx, fundamentals=fundamentals, progress_callback=bt_cb)
+                bt_results = run_backtest(df, market_ctx=market_ctx, fundamentals=fundamentals,
+                                         earnings_data=earnings, options_data=options_mkt,
+                                         progress_callback=bt_cb)
             except Exception as e:
                 st.warning(f"Backtest error: {e}")
 
@@ -610,6 +633,10 @@ with hero_col:
         unsafe_allow_html=True)
 
 for col_h, h in zip([h1,h2,h3,h4], ["1 Week","1 Month","1 Quarter","1 Year"]):
+    if h not in predictions:
+        with col_h:
+            st.markdown(f"<div class='hstrip'><div style='color:{TEXT_MUTED};font-size:0.75rem;padding:20px 0;text-align:center'>Not enough data<br>for {h}</div></div>", unsafe_allow_html=True)
+        continue
     p   = predictions[h]
     ret = p["predicted_return"]
     rc_ = _rc(ret)
