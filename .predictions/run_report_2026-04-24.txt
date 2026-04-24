@@ -1,0 +1,78 @@
+SignalEdge Daily Scan — Run Report
+===================================
+Scheduled task: signalledge-daily-scan
+Run at (UTC):   2026-04-24
+Status:         FAILED — environment blocker, no pipeline execution
+
+OUTCOME
+-------
+The batch scanner did not start. It raised ModuleNotFoundError on `yfinance`
+at import time, before any ticker was screened or any model was trained.
+
+Traceback (first frame):
+  File ".../batch_scanner.py", line 35, in <module>
+    import yfinance as yf
+  ModuleNotFoundError: No module named 'yfinance'
+
+Consequently nothing was written to .predictions/pipeline_summary.json,
+prediction_log_v2.json, or scan_results.json on this run. The most recent
+successful summary on disk is still from 2026-04-14 (DOW-30 only, 29 screened,
+5 deep-scanned, 25 data points added, 0 errors).
+
+ROOT CAUSE
+----------
+This sandbox is missing most of the stack the pipeline requires, and the
+dependencies cannot be installed because the proxy does not allow egress to
+package repositories or data providers.
+
+Missing Python modules detected in the environment:
+  streamlit, yfinance, xgboost, sklearn, plotly, joblib, scipy, lightgbm,
+  optuna, shap
+Present: pandas, numpy, requests, supabase, python-dotenv
+
+Network reachability checks (all via the sandbox's http proxy):
+  pypi.org                 -> unreachable (HTTP 000 / dns_failure)
+  files.pythonhosted.org   -> unreachable (HTTP 000 / dns_failure)
+  github.com               -> unreachable (HTTP 000)
+  raw.githubusercontent.com-> unreachable (HTTP 000)
+  conda.anaconda.org       -> unreachable (HTTP 000)
+  pypi.anthropic.com       -> 587 "Coworkd Upstream Failed" (dns_failure)
+  query1.finance.yahoo.com -> unreachable (HTTP 000)
+  finance.yahoo.com        -> unreachable (HTTP 000)
+
+`pip install yfinance pandas numpy scikit-learn xgboost --break-system-packages`
+was attempted and fails with:
+  "Tunnel connection failed: 403 Forbidden ... Could not find a version that
+   satisfies the requirement yfinance"
+
+No vendored wheels were found under the project directory, and the proxy
+returns dns_failure for every pypi mirror tried, so there is no offline
+install path available from this session.
+
+Even if the ML stack were installed, the scanner's data source
+(query1.finance.yahoo.com, via yfinance) is not reachable from this proxy,
+so Tier 1 screening and Tier 2 deep scans would both fail at data-fetch time.
+
+SUCCESS CRITERIA
+----------------
+  deep_scanned > 30          -> NOT MET (pipeline never started)
+  data_points_added > 150    -> NOT MET (pipeline never started)
+  script exits without crash -> NOT MET (ModuleNotFoundError on import)
+
+SUGGESTED REMEDIATION
+---------------------
+The scheduled task appears to have been authored for a session that includes
+outbound network access to PyPI and Yahoo Finance (and/or has the ML stack
+baked into the image). Options:
+
+  1. Pin this scheduled task to a runner/image that already has yfinance,
+     xgboost, lightgbm, scikit-learn, scipy, joblib, optuna, shap, plotly,
+     and streamlit preinstalled.
+  2. Add pypi.org + files.pythonhosted.org + query*.finance.yahoo.com to the
+     Cowork proxy allowlist so `pip install` and yfinance data fetches can
+     complete from inside the sandbox.
+  3. Ship a local wheelhouse inside the "Stock Bot" folder (e.g. a `wheels/`
+     directory) and switch the bootstrap to
+     `pip install --no-index --find-links wheels ...`, which would remove
+     the dependency on PyPI at runtime. This still does NOT solve the Yahoo
+     Finance fetch problem.

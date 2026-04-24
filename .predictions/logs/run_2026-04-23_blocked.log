@@ -1,0 +1,40 @@
+SignalEdge daily scan — scheduled run on 2026-04-23
+
+Status: BLOCKED — pipeline did not execute.
+
+Root cause:
+  This automated run executes inside a sandboxed Linux session whose egress
+  proxy blocks both PyPI and Yahoo Finance:
+    - https://pypi.org/...                -> 403 Forbidden from proxy
+    - https://files.pythonhosted.org/...  -> 403 Forbidden from proxy
+    - https://query1.finance.yahoo.com/... -> 403 Forbidden from proxy
+    - https://finance.yahoo.com/...        -> 403 Forbidden from proxy
+
+Because of this:
+  1. pip install yfinance xgboost scikit-learn fails (no PyPI reachable).
+  2. Even with deps present, yfinance cannot fetch OHLCV data (Yahoo blocked).
+
+Sandbox Python: /usr/bin/python3 (3.10.12)  — has only numpy + pandas preinstalled.
+
+Existing project venv at .venv/ is macOS-built (home=/Library/Developer/CommandLineTools/usr/bin,
+version=3.9.6). Its C-extension packages (numpy/pandas/xgboost/scikit-learn) are
+macOS binaries and cannot be loaded by the sandbox's Linux Python. yfinance is
+pure Python but still unusable because Yahoo is unreachable.
+
+Attempted:
+  - python3 batch_scanner.py --index all --deep-n 50 --data-period 5y
+      -> ModuleNotFoundError: No module named 'yfinance'
+  - pip install yfinance scikit-learn xgboost --break-system-packages
+      -> ProxyError / 403 from proxy, no PyPI distributions found
+  - PYTHONPATH=<.venv site-packages> python3 -c 'import yfinance'
+      -> numpy import fails (macOS arch mismatch), so chain broken
+
+No state was modified:
+  - .predictions/pipeline_summary.json  — LEFT AS-IS (last successful run 2026-04-14)
+  - .predictions/scan_results.json      — LEFT AS-IS
+  - .predictions/prediction_log*.json   — LEFT AS-IS
+  - .predictions/universe_cache.json    — LEFT AS-IS
+
+To run this schedule successfully, the pipeline needs to execute on an
+environment where both PyPI and Yahoo Finance are reachable (e.g. directly
+on the user's Mac against the project's .venv, not inside this Cowork sandbox).

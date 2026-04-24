@@ -1,0 +1,239 @@
+{
+  "meta": {
+    "started_at": "2026-04-23T13:07:29.753023",
+    "label": "baseline",
+    "git_commit": "42649ce",
+    "tickers": [
+      "AAPL",
+      "NVDA",
+      "JPM",
+      "XOM"
+    ],
+    "horizons": [
+      "1 Week",
+      "1 Month",
+      "1 Quarter"
+    ],
+    "data_period": "5y",
+    "python_version": "3.9.6",
+    "finished_at": "2026-04-23T13:09:29.186234",
+    "total_elapsed_sec": 119.4
+  },
+  "aggregate": {
+    "n_cells": 12,
+    "avg_dir_accuracy": 55.0,
+    "avg_win_rate": 62.12,
+    "avg_strat_sharpe": 0.61,
+    "avg_max_drawdown": -97.12,
+    "avg_profit_factor": 2.49
+  },
+  "per_ticker": {
+    "AAPL": {
+      "status": "ok",
+      "elapsed_sec": 33.4,
+      "horizons": {
+        "1 Week": {
+          "dir_accuracy": 50.7,
+          "win_rate": 53.5,
+          "strat_sharpe": 0.33,
+          "bh_sharpe": 0.61,
+          "max_drawdown": -96.1,
+          "profit_factor": 1.15,
+          "n_windows": 21,
+          "test_start": "2024-04-24",
+          "test_end": "2026-03-27",
+          "regime_accuracy": {
+            "Bull": 55.9,
+            "Bear": 42.3
+          }
+        },
+        "1 Month": {
+          "dir_accuracy": 49.7,
+          "win_rate": 58.9,
+          "strat_sharpe": 0.24,
+          "bh_sharpe": 0.68,
+          "max_drawdown": -100.0,
+          "profit_factor": 1.22,
+          "n_windows": 20,
+          "test_start": "2024-04-24",
+          "test_end": "2026-02-26",
+          "regime_accuracy": {
+            "Bull": 55.3,
+            "Bear": 36.5
+          }
+        },
+        "1 Quarter": {
+          "dir_accuracy": 58.6,
+          "win_rate": 67.2,
+          "strat_sharpe": 0.52,
+          "bh_sharpe": 0.65,
+          "max_drawdown": -100.0,
+          "profit_factor": 2.12,
+          "n_windows": 18,
+          "test_start": "2024-04-24",
+          "test_end": "2025-12-24",
+          "regime_accuracy": {
+            "Bull": 69.7,
+            "Bear": 36.2
+          }
+        }
+      }
+    },
+    "NVDA": {
+      "status": "ok",
+      "elapsed_sec": 27.7,
+      "horizons": {
+        "1 Week": {
+          "dir_accuracy": 46.6,
+          "win_rate": 52.2,
+          "strat_sharpe": 0.21,
+          "bh_sharpe": 0.68,
+          "max_drawdown": -96.5,
+          "profit_factor": 1.09,
+          "n_windows": 21,
+          "test_start": "2024-04-24",
+          "test_end": "2026-03-27",
+          "regime_accuracy": {
+            "Bull": 46.9,
+            "Bear": 45.4,
+            "Sideways": 50.8
+          }
+        },
+        "1 Month": {
+          "dir_accuracy": 44.8,
+          "win_rate": 53.6,
+          "strat_sharpe": 0.13,
+          "bh_sharpe": 0.81,
+          "max_drawdown": -100.0,
+          "profit_factor": 1.14,
+          "n_windows": 20,
+          "test_start": "2024-04-24",
+          "test_end": "2026-02-26",
+          "regime_accuracy": {
+            "Bull": 46.6,
+            "Bear": 41.3
+          }
+        },
+        "1 Quarter": {
+          "dir_accuracy": 50.9,
+          "win_rate": 61.6,
+          "strat_sharpe": 0.39,
+          "bh_sharpe": 0.83,
+          "max_drawdown": -100.0,
+          "profit_factor": 1.81,
+          "n_windows": 18,
+          "test_start": "2024-04-24",
+          "test_end": "2025-12-24",
+          "regime_accuracy": {
+            "Bull": 58.9,
+            "Bear": 30.2
+          }
+        }
+      }
+    },
+    "JPM": {
+      "status": "ok",
+      "elapsed_sec": 27.2,
+      "horizons": {
+        "1 Week": {
+          "dir_accuracy": 57.1,
+          "win_rate": 60.8,
+          "strat_sharpe": 0.83,
+          "bh_sharpe": 1.06,
+          "max_drawdown": -86.2,
+          "profit_factor": 1.38,
+          "n_windows": 21,
+          "test_start": "2024-04-24",
+          "test_end": "2026-03-27",
+          "regime_accuracy": {
+            "Bull": 58.8,
+            "Bear": 48.1,
+            "Sideways": 55.6
+          }
+        },
+        "1 Month": {
+          "dir_accuracy": 59.4,
+          "win_rate": 63.5,
+          "strat_sharpe": 1.16,
+          "bh_sharpe": 1.26,
+          "max_drawdown": -99.8,
+          "profit_factor": 2.43,
+          "n_windows": 20,
+          "test_start": "2024-04-24",
+          "test_end": "2026-02-26",
+          "regime_accuracy": {
+            "Bull": 64.5,
+            "Bear": 38.9
+          }
+        },
+        "1 Quarter": {
+          "dir_accuracy": 81.7,
+          "win_rate": 85.9,
+          "strat_sharpe": 1.78,
+          "bh_sharpe": 1.84,
+          "max_drawdown": -98.7,
+          "profit_factor": 11.49,
+          "n_windows": 18,
+          "test_start": "2024-04-24",
+          "test_end": "2025-12-24",
+          "regime_accuracy": {
+            "Bull": 87.8,
+            "Bear": 44.4,
+            "Sideways": 63.5
+          }
+        }
+      }
+    },
+    "XOM": {
+      "status": "ok",
+      "elapsed_sec": 31.0,
+      "horizons": {
+        "1 Week": {
+          "dir_accuracy": 46.6,
+          "win_rate": 52.3,
+          "strat_sharpe": 0.49,
+          "bh_sharpe": 0.81,
+          "max_drawdown": -89.7,
+          "profit_factor": 1.27,
+          "n_windows": 21,
+          "test_start": "2024-04-24",
+          "test_end": "2026-03-27",
+          "regime_accuracy": {
+            "Bull": 48.4,
+            "Bear": 43.1
+          }
+        },
+        "1 Month": {
+          "dir_accuracy": 53.8,
+          "win_rate": 65.7,
+          "strat_sharpe": 0.53,
+          "bh_sharpe": 0.83,
+          "max_drawdown": -98.4,
+          "profit_factor": 1.69,
+          "n_windows": 20,
+          "test_start": "2024-04-24",
+          "test_end": "2026-02-26",
+          "regime_accuracy": {
+            "Bull": 54.8,
+            "Bear": 51.9
+          }
+        },
+        "1 Quarter": {
+          "dir_accuracy": 60.1,
+          "win_rate": 70.2,
+          "strat_sharpe": 0.65,
+          "bh_sharpe": 0.7,
+          "max_drawdown": -100.0,
+          "profit_factor": 3.14,
+          "n_windows": 18,
+          "test_start": "2024-04-24",
+          "test_end": "2025-12-24",
+          "regime_accuracy": {
+            "Bull": 69.3,
+            "Bear": 45.8
+          }
+        }
+      }
+    }
+  }
+}

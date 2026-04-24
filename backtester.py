@@ -311,10 +311,12 @@ def run_backtest(
     spy = market_ctx.get("spy") if market_ctx else None
     vix = market_ctx.get("vix") if market_ctx else None
     sec = market_ctx.get("sector") if market_ctx else None
+    sentiment = market_ctx.get("sentiment") if market_ctx else None
 
     base_feats = engineer_features(df, spy_close=spy, vix_close=vix,
                                     sector_close=sec, fundamentals=fundamentals,
-                                    earnings_data=earnings_data, options_data=options_data)
+                                    earnings_data=earnings_data, options_data=options_data,
+                                    sentiment_ctx=sentiment)
     reg_feats  = regime_features(df, spy_close=spy, vix_close=vix)
     features   = pd.concat([base_feats, reg_feats], axis=1)
     features   = features.loc[:, ~features.columns.duplicated()]

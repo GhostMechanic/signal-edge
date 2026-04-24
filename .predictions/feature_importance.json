@@ -1,0 +1,618 @@
+{
+  "features": {
+    "alpha_63d": {
+      "cumulative_score": 6.507639999999978,
+      "correct_count": 1708,
+      "wrong_count": 1136,
+      "total_appearances": 2844
+    },
+    "var_ratio_21d": {
+      "cumulative_score": 11.669419999999922,
+      "correct_count": 2660,
+      "wrong_count": 1620,
+      "total_appearances": 4280
+    },
+    "ret_63d": {
+      "cumulative_score": 5.011905000000008,
+      "correct_count": 1585,
+      "wrong_count": 1353,
+      "total_appearances": 2938
+    },
+    "roc_60d": {
+      "cumulative_score": 6.610560000000015,
+      "correct_count": 2122,
+      "wrong_count": 1480,
+      "total_appearances": 3602
+    },
+    "rsi_28": {
+      "cumulative_score": 1.4034899999999941,
+      "correct_count": 497,
+      "wrong_count": 213,
+      "total_appearances": 710
+    },
+    "ma50_200_xover": {
+      "cumulative_score": 12.036570000000083,
+      "correct_count": 3254,
+      "wrong_count": 1792,
+      "total_appearances": 5046
+    },
+    "regime_vix_norm": {
+      "cumulative_score": 3.3759849999999982,
+      "correct_count": 1024,
+      "wrong_count": 713,
+      "total_appearances": 1737
+    },
+    "vix_level": {
+      "cumulative_score": 5.169945000000001,
+      "correct_count": 1703,
+      "wrong_count": 1275,
+      "total_appearances": 2978
+    },
+    "sector_rs_63d": {
+      "cumulative_score": 6.791740000000036,
+      "correct_count": 1389,
+      "wrong_count": 484,
+      "total_appearances": 1873
+    },
+    "month": {
+      "cumulative_score": 9.753859999999856,
+      "correct_count": 2740,
+      "wrong_count": 1841,
+      "total_appearances": 4581
+    },
+    "vol_63d": {
+      "cumulative_score": 25.058764999999855,
+      "correct_count": 4770,
+      "wrong_count": 2410,
+      "total_appearances": 7180
+    },
+    "beta_63d": {
+      "cumulative_score": 12.637569999999979,
+      "correct_count": 2681,
+      "wrong_count": 1313,
+      "total_appearances": 3994
+    },
+    "dist_low_20d": {
+      "cumulative_score": 0.6908750000000032,
+      "correct_count": 249,
+      "wrong_count": 221,
+      "total_appearances": 470
+    },
+    "ichi_tk_ratio": {
+      "cumulative_score": 1.6746150000000004,
+      "correct_count": 672,
+      "wrong_count": 474,
+      "total_appearances": 1146
+    },
+    "autocorr_1d": {
+      "cumulative_score": 14.268890000000011,
+      "correct_count": 3181,
+      "wrong_count": 1899,
+      "total_appearances": 5080
+    },
+    "mom_accel_21": {
+      "cumulative_score": 2.113880000000001,
+      "correct_count": 616,
+      "wrong_count": 129,
+      "total_appearances": 745
+    },
+    "month_sin": {
+      "cumulative_score": 8.667539999999997,
+      "correct_count": 2231,
+      "wrong_count": 1163,
+      "total_appearances": 3394
+    },
+    "var_ratio_10d": {
+      "cumulative_score": 8.917375000000051,
+      "correct_count": 2197,
+      "wrong_count": 1392,
+      "total_appearances": 3589
+    },
+    "sector_rs_21d": {
+      "cumulative_score": 1.426120000000008,
+      "correct_count": 366,
+      "wrong_count": 225,
+      "total_appearances": 591
+    },
+    "spy_ma200_ratio": {
+      "cumulative_score": 11.267609999999989,
+      "correct_count": 3138,
+      "wrong_count": 2166,
+      "total_appearances": 5304
+    },
+    "regime_spy_mom63": {
+      "cumulative_score": 6.762085,
+      "correct_count": 1942,
+      "wrong_count": 1460,
+      "total_appearances": 3402
+    },
+    "pos_52w_low": {
+      "cumulative_score": 11.305239999999902,
+      "correct_count": 2960,
+      "wrong_count": 1999,
+      "total_appearances": 4959
+    },
+    "quarter": {
+      "cumulative_score": 0.9972250000000021,
+      "correct_count": 550,
+      "wrong_count": 597,
+      "total_appearances": 1147
+    },
+    "autocorr_5d": {
+      "cumulative_score": 8.64212499999999,
+      "correct_count": 2269,
+      "wrong_count": 1381,
+      "total_appearances": 3650
+    },
+    "earnings_proxy": {
+      "cumulative_score": 0.6833999999999996,
+      "correct_count": 308,
+      "wrong_count": 237,
+      "total_appearances": 545
+    },
+    "ma20_ratio": {
+      "cumulative_score": 0.3474100000000002,
+      "correct_count": 130,
+      "wrong_count": 98,
+      "total_appearances": 228
+    },
+    "earnings_proxy_cos": {
+      "cumulative_score": 0.5487099999999989,
+      "correct_count": 202,
+      "wrong_count": 136,
+      "total_appearances": 338
+    },
+    "alpha_21d": {
+      "cumulative_score": 1.4282499999999996,
+      "correct_count": 447,
+      "wrong_count": 211,
+      "total_appearances": 658
+    },
+    "roc_30d": {
+      "cumulative_score": 2.0752300000000026,
+      "correct_count": 737,
+      "wrong_count": 462,
+      "total_appearances": 1199
+    },
+    "ma20_50_xover": {
+      "cumulative_score": 2.1193450000000027,
+      "correct_count": 767,
+      "wrong_count": 543,
+      "total_appearances": 1310
+    },
+    "autocorr_10d": {
+      "cumulative_score": 7.4645799999999625,
+      "correct_count": 1881,
+      "wrong_count": 1137,
+      "total_appearances": 3018
+    },
+    "month_cos": {
+      "cumulative_score": 8.291355000000053,
+      "correct_count": 2056,
+      "wrong_count": 1405,
+      "total_appearances": 3461
+    },
+    "vol_regime": {
+      "cumulative_score": 3.4780600000000073,
+      "correct_count": 952,
+      "wrong_count": 523,
+      "total_appearances": 1475
+    },
+    "pos_52w_high": {
+      "cumulative_score": 14.481685000000112,
+      "correct_count": 4022,
+      "wrong_count": 2546,
+      "total_appearances": 6568
+    },
+    "regime_vol_ratio": {
+      "cumulative_score": 4.257949999999994,
+      "correct_count": 1259,
+      "wrong_count": 784,
+      "total_appearances": 2043
+    },
+    "vol_5d": {
+      "cumulative_score": 1.7422749999999947,
+      "correct_count": 532,
+      "wrong_count": 320,
+      "total_appearances": 852
+    },
+    "atr_ratio": {
+      "cumulative_score": 4.017600000000031,
+      "correct_count": 1410,
+      "wrong_count": 1159,
+      "total_appearances": 2569
+    },
+    "ichi_cloud_width": {
+      "cumulative_score": 3.393340000000002,
+      "correct_count": 1282,
+      "wrong_count": 967,
+      "total_appearances": 2249
+    },
+    "spy_ma50_ratio": {
+      "cumulative_score": 2.469625000000008,
+      "correct_count": 762,
+      "wrong_count": 412,
+      "total_appearances": 1174
+    },
+    "vpt_trend": {
+      "cumulative_score": 3.087785,
+      "correct_count": 851,
+      "wrong_count": 420,
+      "total_appearances": 1271
+    },
+    "ma100_ratio": {
+      "cumulative_score": 2.2484599999999997,
+      "correct_count": 1123,
+      "wrong_count": 1012,
+      "total_appearances": 2135
+    },
+    "macd_sig": {
+      "cumulative_score": 2.7257599999999944,
+      "correct_count": 742,
+      "wrong_count": 502,
+      "total_appearances": 1244
+    },
+    "regime_mom63": {
+      "cumulative_score": 2.1020399999999957,
+      "correct_count": 706,
+      "wrong_count": 547,
+      "total_appearances": 1253
+    },
+    "ma200_ratio": {
+      "cumulative_score": 3.615724999999987,
+      "correct_count": 1679,
+      "wrong_count": 1399,
+      "total_appearances": 3078
+    },
+    "regime_spy_vs_200ma": {
+      "cumulative_score": 7.101079999999949,
+      "correct_count": 1622,
+      "wrong_count": 1457,
+      "total_appearances": 3079
+    },
+    "vol_21d": {
+      "cumulative_score": 1.9652099999999968,
+      "correct_count": 843,
+      "wrong_count": 795,
+      "total_appearances": 1638
+    },
+    "macd_norm": {
+      "cumulative_score": 1.4238100000000005,
+      "correct_count": 587,
+      "wrong_count": 540,
+      "total_appearances": 1127
+    },
+    "ichi_price_vs_cloud": {
+      "cumulative_score": 1.406904999999998,
+      "correct_count": 569,
+      "wrong_count": 551,
+      "total_appearances": 1120
+    },
+    "obv_trend": {
+      "cumulative_score": 2.5276049999999977,
+      "correct_count": 631,
+      "wrong_count": 553,
+      "total_appearances": 1184
+    },
+    "macd_hist": {
+      "cumulative_score": -0.1504099999999997,
+      "correct_count": 131,
+      "wrong_count": 332,
+      "total_appearances": 463
+    },
+    "dist_low_50d": {
+      "cumulative_score": 2.135009999999997,
+      "correct_count": 597,
+      "wrong_count": 464,
+      "total_appearances": 1061
+    },
+    "regime_vs_200ma": {
+      "cumulative_score": 2.595660000000006,
+      "correct_count": 812,
+      "wrong_count": 536,
+      "total_appearances": 1348
+    },
+    "dist_high_50d": {
+      "cumulative_score": 2.6572400000000074,
+      "correct_count": 840,
+      "wrong_count": 632,
+      "total_appearances": 1472
+    },
+    "cci": {
+      "cumulative_score": 0.6043200000000005,
+      "correct_count": 133,
+      "wrong_count": 52,
+      "total_appearances": 185
+    },
+    "ret_21d": {
+      "cumulative_score": 1.4952800000000026,
+      "correct_count": 547,
+      "wrong_count": 404,
+      "total_appearances": 951
+    },
+    "hl_range_5d_avg": {
+      "cumulative_score": 1.6860599999999966,
+      "correct_count": 691,
+      "wrong_count": 601,
+      "total_appearances": 1292
+    },
+    "ret_10d": {
+      "cumulative_score": 0.18404000000000015,
+      "correct_count": 157,
+      "wrong_count": 198,
+      "total_appearances": 355
+    },
+    "spy_ma20_ratio": {
+      "cumulative_score": 0.37647000000000114,
+      "correct_count": 191,
+      "wrong_count": 209,
+      "total_appearances": 400
+    },
+    "ma5_ratio": {
+      "cumulative_score": 0.39761499999999983,
+      "correct_count": 131,
+      "wrong_count": 15,
+      "total_appearances": 146
+    },
+    "ma50_ratio": {
+      "cumulative_score": 1.9950149999999969,
+      "correct_count": 513,
+      "wrong_count": 295,
+      "total_appearances": 808
+    },
+    "bb_bw": {
+      "cumulative_score": 0.8400649999999998,
+      "correct_count": 455,
+      "wrong_count": 441,
+      "total_appearances": 896
+    },
+    "low_fear": {
+      "cumulative_score": 1.4439800000000023,
+      "correct_count": 105,
+      "wrong_count": 54,
+      "total_appearances": 159
+    },
+    "roc_10d": {
+      "cumulative_score": 0.14083499999999993,
+      "correct_count": 89,
+      "wrong_count": 140,
+      "total_appearances": 229
+    },
+    "vol_trend": {
+      "cumulative_score": 0.2876600000000004,
+      "correct_count": 155,
+      "wrong_count": 154,
+      "total_appearances": 309
+    },
+    "ret_5d": {
+      "cumulative_score": 0.6725900000000014,
+      "correct_count": 213,
+      "wrong_count": 32,
+      "total_appearances": 245
+    },
+    "sent_yield_curve_spread": {
+      "cumulative_score": 19.826884999999923,
+      "correct_count": 3381,
+      "wrong_count": 2505,
+      "total_appearances": 5886
+    },
+    "sent_treasury_10y_level": {
+      "cumulative_score": 13.627794999999892,
+      "correct_count": 2737,
+      "wrong_count": 2195,
+      "total_appearances": 4932
+    },
+    "sent_treasury_10y_momentum_21d": {
+      "cumulative_score": 3.0933950000000006,
+      "correct_count": 1324,
+      "wrong_count": 1026,
+      "total_appearances": 2350
+    },
+    "hl_range_norm": {
+      "cumulative_score": 0.5841700000000002,
+      "correct_count": 149,
+      "wrong_count": 12,
+      "total_appearances": 161
+    },
+    "ret_2d": {
+      "cumulative_score": 0.4120899999999995,
+      "correct_count": 98,
+      "wrong_count": 0,
+      "total_appearances": 98
+    },
+    "gap_down": {
+      "cumulative_score": 0.28942999999999974,
+      "correct_count": 90,
+      "wrong_count": 12,
+      "total_appearances": 102
+    },
+    "rs_spy_20": {
+      "cumulative_score": 0.5227599999999992,
+      "correct_count": 224,
+      "wrong_count": 187,
+      "total_appearances": 411
+    },
+    "sent_dollar_momentum_21d": {
+      "cumulative_score": 0.8084150000000024,
+      "correct_count": 243,
+      "wrong_count": 168,
+      "total_appearances": 411
+    },
+    "mom_accel_5": {
+      "cumulative_score": 0.5088950000000002,
+      "correct_count": 234,
+      "wrong_count": 141,
+      "total_appearances": 375
+    },
+    "ma5_20_xover": {
+      "cumulative_score": 0.6800700000000001,
+      "correct_count": 386,
+      "wrong_count": 332,
+      "total_appearances": 718
+    },
+    "vol_ratio_20": {
+      "cumulative_score": 0.29552500000000054,
+      "correct_count": 110,
+      "wrong_count": 28,
+      "total_appearances": 138
+    },
+    "sent_sector_dispersion_21d": {
+      "cumulative_score": 0.9026650000000005,
+      "correct_count": 261,
+      "wrong_count": 89,
+      "total_appearances": 350
+    },
+    "vix_ret_5d": {
+      "cumulative_score": -0.05624999999999993,
+      "correct_count": 39,
+      "wrong_count": 118,
+      "total_appearances": 157
+    },
+    "sent_vix_momentum_5d": {
+      "cumulative_score": -0.08753500000000006,
+      "correct_count": 12,
+      "wrong_count": 77,
+      "total_appearances": 89
+    },
+    "regime_vs_50ma": {
+      "cumulative_score": 0.7572699999999978,
+      "correct_count": 163,
+      "wrong_count": 127,
+      "total_appearances": 290
+    },
+    "rsi_14": {
+      "cumulative_score": 0.9273200000000028,
+      "correct_count": 181,
+      "wrong_count": 138,
+      "total_appearances": 319
+    },
+    "dist_high_20d": {
+      "cumulative_score": 0.3337299999999968,
+      "correct_count": 271,
+      "wrong_count": 394,
+      "total_appearances": 665
+    },
+    "ma10_ratio": {
+      "cumulative_score": 0.13438000000000003,
+      "correct_count": 64,
+      "wrong_count": 102,
+      "total_appearances": 166
+    },
+    "stoch_d": {
+      "cumulative_score": 0.01790499999999994,
+      "correct_count": 59,
+      "wrong_count": 109,
+      "total_appearances": 168
+    },
+    "regime_mom21": {
+      "cumulative_score": 0.50072,
+      "correct_count": 155,
+      "wrong_count": 68,
+      "total_appearances": 223
+    },
+    "bb_pct_b": {
+      "cumulative_score": 0.20536999999999986,
+      "correct_count": 95,
+      "wrong_count": 28,
+      "total_appearances": 123
+    },
+    "rvol_50": {
+      "cumulative_score": 0.1937100000000002,
+      "correct_count": 105,
+      "wrong_count": 66,
+      "total_appearances": 171
+    },
+    "sent_avg_sector_momentum": {
+      "cumulative_score": 0.6172699999999999,
+      "correct_count": 254,
+      "wrong_count": 147,
+      "total_appearances": 401
+    },
+    "stoch_k": {
+      "cumulative_score": 0.1176800000000001,
+      "correct_count": 28,
+      "wrong_count": 24,
+      "total_appearances": 52
+    },
+    "gap_up": {
+      "cumulative_score": 0.17572,
+      "correct_count": 53,
+      "wrong_count": 0,
+      "total_appearances": 53
+    },
+    "ret_3d": {
+      "cumulative_score": 0.22101500000000002,
+      "correct_count": 75,
+      "wrong_count": 39,
+      "total_appearances": 114
+    },
+    "high_fear": {
+      "cumulative_score": -0.047199999999999964,
+      "correct_count": 12,
+      "wrong_count": 34,
+      "total_appearances": 46
+    },
+    "alpha_5d": {
+      "cumulative_score": 0.13230500000000003,
+      "correct_count": 70,
+      "wrong_count": 49,
+      "total_appearances": 119
+    },
+    "vix_ma20_dev": {
+      "cumulative_score": 0.8959649999999999,
+      "correct_count": 440,
+      "wrong_count": 342,
+      "total_appearances": 782
+    },
+    "williams_r": {
+      "cumulative_score": -0.035640000000000005,
+      "correct_count": 0,
+      "wrong_count": 24,
+      "total_appearances": 24
+    },
+    "day_of_week": {
+      "cumulative_score": -0.013439999999999999,
+      "correct_count": 0,
+      "wrong_count": 12,
+      "total_appearances": 12
+    },
+    "vol_ratio_5": {
+      "cumulative_score": 0.02748,
+      "correct_count": 12,
+      "wrong_count": 0,
+      "total_appearances": 12
+    },
+    "fund_pe_ratio": {
+      "cumulative_score": 0.09587999999999998,
+      "correct_count": 12,
+      "wrong_count": 0,
+      "total_appearances": 12
+    },
+    "lower_wick_ratio": {
+      "cumulative_score": 0.03252,
+      "correct_count": 12,
+      "wrong_count": 0,
+      "total_appearances": 12
+    },
+    "pivot_dist": {
+      "cumulative_score": -0.020565,
+      "correct_count": 10,
+      "wrong_count": 36,
+      "total_appearances": 46
+    },
+    "ret_1d": {
+      "cumulative_score": 0.011800000000000001,
+      "correct_count": 8,
+      "wrong_count": 10,
+      "total_appearances": 18
+    },
+    "upper_wick_ratio": {
+      "cumulative_score": 0.02385,
+      "correct_count": 9,
+      "wrong_count": 0,
+      "total_appearances": 9
+    }
+  },
+  "update_count": 49,
+  "last_updated": "2026-04-23T21:06:34.230791"
+}

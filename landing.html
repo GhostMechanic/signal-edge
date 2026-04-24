@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prediqt — Know the move before it happens.</title>
+  <meta name="description" content="Prediqt uses data-driven intelligence to identify high-probability market moves — and teaches you exactly why they happen." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    /* ============================================================
+       PREDIQT — LANDING PAGE
+       Brand system matches the Streamlit app:
+         --blue  #2080e5  (deep brand blue)
+         --cyan  #06d6a0  (teal accent)
+       ============================================================ */
+
+    :root {
+      --bg-deep:       #060a10;
+      --bg-surface:    #0a0e14;
+      --bg-card:       #0f1319;
+      --bg-elevated:   #141a22;
+      --border:        #1a2233;
+      --border-accent: #1e3050;
+
+      --text-primary:   #f0f4fa;
+      --text-secondary: #8898aa;
+      --text-muted:     #4a5a6e;
+
+      --blue:  #2080e5;
+      --cyan:  #06d6a0;
+      --green: #10b981;
+      --red:   #ef4444;
+      --amber: #f59e0b;
+
+      --gradient: linear-gradient(135deg, #2080e5 0%, #06d6a0 100%);
+      --gradient-soft: linear-gradient(135deg, rgba(32,128,229,0.18) 0%, rgba(6,214,160,0.18) 100%);
+
+      --shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
+      --shadow-md: 0 8px 32px rgba(0,0,0,0.35);
+      --shadow-glow: 0 0 48px rgba(32,128,229,0.25);
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-xl: 24px;
+
+      --container: 1200px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.55;
+      font-weight: 400;
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* Decorative background orbs */
+    body::before, body::after {
+      content: '';
+      position: fixed;
+      width: 600px; height: 600px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      filter: blur(140px);
+      opacity: 0.32;
+    }
+    body::before {
+      background: radial-gradient(circle, rgba(32,128,229,0.6), transparent 60%);
+      top: -200px; left: -200px;
+    }
+    body::after {
+      background: radial-gradient(circle, rgba(6,214,160,0.45), transparent 60%);
+      top: 300px; right: -200px;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+    img, svg { max-width: 100%; display: block; }
+
+    .container {
+      max-width: var(--container);
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ───────────── Typography ───────────── */
+    h1, h2, h3, h4 { font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+    h1 { font-size: clamp(2.4rem, 5.5vw, 4.2rem); font-weight: 900; letter-spacing: -0.035em; }
+    h2 { font-size: clamp(1.9rem, 4vw, 2.8rem); }
+    h3 { font-size: 1.15rem; }
+
+    .eyebrow {
+      color: var(--blue);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .gradient-text {
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* ───────────── Buttons ───────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 13px 24px;
+      border-radius: 10px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .btn-primary {
+      background: var(--gradient);
+      color: #fff;
+      box-shadow: 0 6px 24px rgba(32,128,229,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 32px rgba(32,128,229,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+    }
+    .btn-secondary {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-card);
+      border-color: var(--border-accent);
+    }
+    .btn-ghost {
+      color: var(--text-secondary);
+      padding: 10px 16px;
+      font-weight: 600;
+      font-size: 0.88rem;
+    }
+    .btn-ghost:hover { color: var(--text-primary); }
+
+    .btn .arrow { transition: transform 0.2s; }
+    .btn:hover .arrow { transform: translateX(3px); }
+
+    /* ───────────── Nav ───────────── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 10px 0;
+      background: rgba(6,10,16,0.6);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(26,34,51,0.4);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 1.4rem; font-weight: 900;
+      letter-spacing: -0.03em;
+    }
+    .logo img.logo-img {
+      height: 84px;
+      width: auto;
+      display: block;
+    }
+    .footer-brand .logo img.logo-img {
+      height: 72px;
+      margin-bottom: 4px;
+    }
+    .logo-mark {
+      width: 34px; height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--gradient);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(32,128,229,0.4);
+    }
+    .logo-mark svg { width: 20px; height: 20px; color: #fff; }
+    .logo-mark img.logo-icon-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .mockup-sidebar-logo .logo-mark {
+      background: transparent;
+      box-shadow: none;
+    }
+    .nav-links {
+      display: flex;
+      gap: 30px;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+    .nav-cta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav-toggle {
+      display: none;
+      width: 32px; height: 32px;
+      align-items: center; justify-content: center;
+      color: var(--text-primary);
+    }
+
+    /* ───────────── Hero ───────────── */
+    .hero {
+      padding: 70px 0 90px;
+      position: relative;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .badge-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
+      background: rgba(32,128,229,0.1);
+      border: 1px solid rgba(32,128,229,0.3);
+      border-radius: 100px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--cyan);
+      margin-bottom: 24px;
+    }
+    .badge-chip .dot {
+      width: 6px; height: 6px;
+      background: var(--cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--cyan);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .hero h1 { margin-bottom: 20px; }
+    .hero-sub {
+      font-size: 1.08rem;
+      color: var(--text-secondary);
+      max-width: 520px;
+      margin-bottom: 32px;
+      line-height: 1.65;
+    }
+
+    .hero-ctas {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+    }
+
+    .hero-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      font-size: 0.76rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .pill svg { width: 14px; height: 14px; color: var(--cyan); flex-shrink: 0; }
+
+    /* ───────────── Dashboard mockup ───────────── */
+    .mockup {
+      position: relative;
+      perspective: 1800px;
+    }
+    .mockup-card {
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-surface) 100%);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-xl);
+      padding: 18px;
+      box-shadow: var(--shadow-md), 0 0 80px rgba(32,128,229,0.12);
+      position: relative;
+      overflow: hidden;
+    }
+    .mockup-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(32,128,229,0.08) 0%, transparent 40%, transparent 60%, rgba(6,214,160,0.06) 100%);
+      pointer-events: none;
+    }
+    .mockup-inner {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .mockup-sidebar {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 10px;
+    }
+    .mockup-sidebar-logo {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.75rem; font-weight: 800;
+      margin-bottom: 16px; padding: 0 6px;
+    }
+    .mockup-sidebar-logo .logo-mark {
+      width: 20px; height: 20px; border-radius: 5px;
+    }
+    .mockup-sidebar-logo .logo-mark svg { width: 12px; height: 12px; }
+    .mockup-sidebar-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      border-radius: 6px;
+      margin-bottom: 2px;
+    }
+    .mockup-sidebar-item svg { width: 13px; height: 13px; }
+    .mockup-sidebar-item.active {
+      background: rgba(32,128,229,0.12);
+      color: var(--text-primary);
+      border: 1px solid rgba(32,128,229,0.25);
+    }
+
+    .mockup-main { min-width: 0; }
+    .mockup-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 6px 10px 14px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+    .mockup-ticker-label {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .mockup-ticker-sub {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      display: flex; align-items: center; gap: 4px;
+      margin-top: 3px;
+    }
+    .mockup-price {
+      font-size: 1.6rem;
+      font-weight: 900;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+      margin-top: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .mockup-price-change {
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .mockup-score {
+      text-align: right;
+    }
+    .mockup-score-label {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .gauge {
+      position: relative;
+      width: 100px; height: 60px;
+    }
+    .gauge svg { width: 100%; height: 100%; }
+    .gauge-value {
+      position: absolute;
+      bottom: 2px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 1.5rem; font-weight: 900;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+    .gauge-sub {
+      text-align: center;
+      font-size: 0.6rem;
+      color: var(--cyan);
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .mockup-chart {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      margin-bottom: 14px;
+    }
+    .mockup-chart svg { width: 100%; height: 140px; }
+
+    .mockup-signal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--green);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: grid;
+      grid-template-columns: 1.3fr 0.8fr 0.8fr;
+      gap: 12px;
+      align-items: center;
+    }
+    .mockup-signal-title { color: var(--text-muted); font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 4px; }
+    .mockup-signal-main { color: var(--green); font-weight: 800; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
+    .mockup-signal-date { color: var(--text-muted); font-size: 0.62rem; margin-top: 3px; }
+    .mockup-signal-metric-label { color: var(--text-muted); font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 4px; }
+    .mockup-signal-metric-value { color: var(--text-primary); font-weight: 800; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+    .mockup-signal-metric-value.green { color: var(--green); }
+
+    /* ───────────── Section base ───────────── */
+    section { padding: 90px 0; position: relative; }
+    .section-head { text-align: center; margin-bottom: 60px; }
+    .section-head .eyebrow { display: inline-block; margin-bottom: 12px; }
+    .section-head h2 { max-width: 720px; margin: 0 auto; }
+
+    /* ───────────── Three steps ───────────── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      position: relative;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .step {
+      text-align: center;
+      padding: 0 24px;
+      position: relative;
+    }
+    .step-icon {
+      width: 64px; height: 64px;
+      margin: 0 auto 20px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border-accent);
+      border-radius: 50%;
+      color: var(--cyan);
+      box-shadow: 0 0 32px rgba(6,214,160,0.15);
+    }
+    .step-icon svg { width: 26px; height: 26px; }
+    .step-num {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--cyan);
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+    .step h3 { margin-bottom: 10px; font-size: 1.2rem; }
+    .step p { color: var(--text-secondary); font-size: 0.9rem; max-width: 240px; margin: 0 auto; line-height: 1.6; }
+    .step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 32px;
+      right: -30px;
+      width: calc(100% - 64px - 40px);
+      border-top: 1.5px dashed var(--border-accent);
+      opacity: 0.7;
+    }
+
+    /* ───────────── Feature breakdown cards ───────────── */
+    .features {
+      background: rgba(10,14,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 60px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .features::before {
+      content: '';
+      position: absolute;
+      top: -100px; left: 50%;
+      transform: translateX(-50%);
+      width: 80%; height: 200px;
+      background: radial-gradient(ellipse, rgba(6,214,160,0.08), transparent 70%);
+      pointer-events: none;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      position: relative;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .feature-card:hover {
+      border-color: var(--border-accent);
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-md);
+    }
+    .feature-head {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 10px;
+    }
+    .feature-icon {
+      width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(32,128,229,0.15);
+      color: var(--blue);
+      border-radius: 7px;
+    }
+    .feature-icon svg { width: 16px; height: 16px; }
+    .feature-card h3 { font-size: 1.02rem; font-weight: 800; }
+    .feature-card p { color: var(--text-secondary); font-size: 0.86rem; line-height: 1.6; margin-bottom: 18px; flex-grow: 1; }
+    .feature-visual {
+      margin-top: auto;
+      min-height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* IQ chip visual */
+    .iq-chip {
+      width: 110px; height: 110px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2.4rem; font-weight: 900;
+      background: var(--gradient);
+      color: #fff;
+      border-radius: 22px;
+      position: relative;
+      box-shadow: 0 0 48px rgba(32,128,229,0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+      letter-spacing: -0.04em;
+    }
+    .iq-chip::before {
+      content: '';
+      position: absolute; inset: -6px;
+      border: 1.5px dashed rgba(6,214,160,0.4);
+      border-radius: 28px;
+      animation: spinSlow 16s linear infinite;
+    }
+    @keyframes spinSlow { to { transform: rotate(360deg); } }
+
+    /* Signal card inside feature */
+    .signal-mini {
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--green);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .signal-mini-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .signal-mini-ticker { font-weight: 800; font-size: 0.9rem; color: var(--text-primary); display: inline-flex; align-items: center; gap: 4px; }
+    .signal-mini-dir { color: var(--green); font-size: 0.7rem; font-weight: 700; }
+    .signal-mini-conf { color: var(--green); font-size: 0.7rem; font-weight: 700; background: rgba(16,185,129,0.12); padding: 2px 8px; border-radius: 4px; }
+    .signal-mini-row { display: flex; justify-content: space-between; font-size: 0.68rem; color: var(--text-muted); margin-bottom: 3px; }
+    .signal-mini-row b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+    .signal-mini-chart { margin-top: 8px; }
+    .signal-mini-chart svg { width: 100%; height: 40px; }
+
+    /* Score gauge visual */
+    .score-visual {
+      text-align: center;
+    }
+    .score-visual .gauge { width: 150px; height: 90px; margin: 0 auto; }
+    .score-visual .gauge-value { font-size: 2rem; }
+    .score-visual .gauge-sub { font-size: 0.66rem; margin-top: 6px; }
+    .score-scale {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      padding: 0 4px;
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Insights visual */
+    .insights-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+    .insights-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 9px 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 0.76rem;
+    }
+    .insights-row-label { color: var(--text-secondary); display: flex; align-items: center; gap: 6px; font-weight: 500; }
+    .insights-row-label svg { width: 12px; height: 12px; color: var(--cyan); }
+    .insights-row-value { color: var(--text-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .insights-row-value.bull { color: var(--green); }
+
+    /* ───────────── Performance ───────────── */
+    .perf-card {
+      background: rgba(10,14,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 44px 40px;
+    }
+    .perf-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr) 1.4fr;
+      gap: 30px;
+      align-items: center;
+    }
+    .stat-label { color: var(--text-muted); font-size: 0.72rem; font-weight: 600; margin-top: 6px; line-height: 1.4; }
+    .stat-value {
+      font-size: clamp(1.8rem, 3vw, 2.6rem);
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .testimonial {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+    }
+    .stars { color: var(--amber); margin-bottom: 10px; font-size: 1rem; letter-spacing: 2px; }
+    .testimonial p { color: var(--text-primary); font-size: 0.93rem; line-height: 1.6; margin-bottom: 16px; font-style: italic; }
+    .testimonial-author { display: flex; align-items: center; gap: 10px; }
+    .testimonial-avatar {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: var(--gradient);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.85rem; color: #fff;
+    }
+    .testimonial-meta { font-size: 0.78rem; }
+    .testimonial-name { color: var(--text-primary); font-weight: 700; }
+    .testimonial-role { color: var(--text-muted); font-size: 0.72rem; }
+
+    /* ───────────── Education angle ───────────── */
+    .edu {
+      padding: 50px 0;
+    }
+    .edu-card {
+      background: rgba(10,14,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 56px 40px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .edu-card::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 50% -10%, rgba(32,128,229,0.12), transparent 60%);
+      pointer-events: none;
+    }
+    .edu-card h2 { margin-bottom: 16px; position: relative; }
+    .edu-card p { color: var(--text-secondary); max-width: 620px; margin: 0 auto; font-size: 1.02rem; line-height: 1.7; position: relative; }
+
+    /* ───────────── Pricing ───────────── */
+    .pricing {
+      background: rgba(10,14,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 60px 40px;
+    }
+    .price-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .price-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+    .price-card:hover {
+      border-color: var(--border-accent);
+      transform: translateY(-2px);
+    }
+    .price-card.featured {
+      border-color: rgba(6,214,160,0.4);
+      background: linear-gradient(180deg, var(--bg-card), rgba(6,214,160,0.04));
+      box-shadow: 0 0 48px rgba(6,214,160,0.12);
+    }
+    .price-badge {
+      position: absolute;
+      top: 18px; right: 18px;
+      padding: 4px 10px;
+      background: var(--gradient);
+      color: #fff;
+      border-radius: 100px;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .price-tier { font-size: 1.2rem; font-weight: 800; margin-bottom: 4px; }
+    .price-blurb { color: var(--text-secondary); font-size: 0.84rem; margin-bottom: 22px; line-height: 1.5; }
+    .price-amount {
+      display: flex; align-items: baseline; gap: 4px;
+      margin-bottom: 24px;
+    }
+    .price-amount .price { font-size: 2.6rem; font-weight: 900; letter-spacing: -0.03em; }
+    .price-amount .period { font-size: 0.9rem; color: var(--text-muted); font-weight: 500; }
+    .price-features {
+      list-style: none;
+      margin-bottom: 26px;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .price-features li {
+      display: flex; align-items: flex-start; gap: 10px;
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .price-features svg { width: 16px; height: 16px; color: var(--cyan); margin-top: 2px; flex-shrink: 0; }
+    .price-cta { width: 100%; padding: 12px; font-size: 0.88rem; }
+
+    /* ───────────── Final CTA ───────────── */
+    .final-cta {
+      padding: 60px 0 100px;
+    }
+    .final-cta-card {
+      background: linear-gradient(135deg, var(--bg-card) 0%, rgba(32,128,229,0.08) 100%);
+      border: 1px solid rgba(32,128,229,0.25);
+      border-radius: var(--radius-xl);
+      padding: 36px 44px;
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+    .final-cta-card::before {
+      content: '';
+      position: absolute;
+      top: 50%; right: -80px; transform: translateY(-50%);
+      width: 260px; height: 260px;
+      background: radial-gradient(circle, rgba(6,214,160,0.18), transparent 65%);
+      filter: blur(30px);
+      pointer-events: none;
+    }
+    .final-cta-mark {
+      width: 64px; height: 64px;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--gradient);
+      border-radius: 14px;
+      box-shadow: 0 0 32px rgba(32,128,229,0.4);
+    }
+    .final-cta-mark svg { width: 32px; height: 32px; color: #fff; }
+    .final-cta-text { flex-grow: 1; }
+    .final-cta-text h2 { font-size: clamp(1.4rem, 2.5vw, 1.8rem); margin-bottom: 4px; }
+    .final-cta-text h2 .gradient-text { display: block; }
+    .final-cta-text p { color: var(--text-secondary); font-size: 0.92rem; margin-top: 8px; }
+    .final-cta .btn-primary {
+      flex-shrink: 0;
+      padding: 15px 28px;
+      font-size: 0.95rem;
+    }
+
+    /* ───────────── Footer ───────────── */
+    footer {
+      padding: 60px 0 40px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-deep);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .footer-brand .logo { margin-bottom: 10px; }
+    .footer-brand p {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      line-height: 1.6;
+      max-width: 260px;
+    }
+    .footer-col h4 {
+      color: var(--text-primary);
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 14px;
+      letter-spacing: 0.3px;
+    }
+    .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .footer-col a {
+      color: var(--text-muted);
+      font-size: 0.84rem;
+      transition: color 0.15s;
+    }
+    .footer-col a:hover { color: var(--text-primary); }
+    .footer-social {
+      display: flex;
+      gap: 10px;
+    }
+    .footer-social a {
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+    .footer-social a:hover {
+      color: var(--text-primary);
+      border-color: var(--border-accent);
+      background: var(--bg-elevated);
+    }
+    .footer-social svg { width: 16px; height: 16px; }
+    .footer-bottom {
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    /* ───────────── Scroll reveal ───────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ───────────── Responsive ───────────── */
+    @media (max-width: 1024px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+      .feature-grid { grid-template-columns: repeat(2, 1fr); }
+      .perf-grid { grid-template-columns: repeat(2, 1fr); }
+      .footer-grid { grid-template-columns: 1.3fr 1fr 1fr; }
+    }
+    @media (max-width: 768px) {
+      .nav-links, .nav-cta .btn-ghost { display: none; }
+      .nav-toggle { display: flex; }
+      .logo img.logo-img { height: 64px; }
+      section { padding: 60px 0; }
+      .hero { padding: 40px 0 60px; }
+      .steps { grid-template-columns: 1fr; gap: 40px; }
+      .step:not(:last-child)::after { display: none; }
+      .price-grid { grid-template-columns: 1fr; }
+      .features { padding: 40px 24px; }
+      .pricing { padding: 40px 24px; }
+      .perf-card { padding: 32px 24px; }
+      .perf-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+      .perf-grid .testimonial { grid-column: span 2; }
+      .final-cta-card { flex-direction: column; text-align: center; padding: 32px 24px; gap: 20px; }
+      .footer-grid { grid-template-columns: 1fr 1fr; gap: 30px; }
+      .footer-brand { grid-column: span 2; }
+      .footer-bottom { flex-direction: column; gap: 10px; text-align: center; }
+    }
+    @media (max-width: 480px) {
+      h1 { font-size: 2.3rem; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .hero-ctas { flex-direction: column; }
+      .hero-ctas .btn { width: 100%; }
+      .mockup-inner { grid-template-columns: 1fr; }
+      .mockup-sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       NAV
+       ═══════════════════════════════════════════════════════════ -->
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="#" class="logo" aria-label="Prediqt">
+        <img src="assets/logo_full_transparent.png" alt="Prediqt" class="logo-img" />
+      </a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how">How It Works</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#insights">Insights</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+      <div class="nav-cta">
+        <a href="#" class="btn btn-ghost">Log in</a>
+        <a href="#pricing" class="btn btn-primary">Get Early Access</a>
+        <button class="nav-toggle" aria-label="Menu">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       HERO
+       ═══════════════════════════════════════════════════════════ -->
+  <section class="hero">
+    <div class="container hero-grid">
+      <div class="hero-text">
+        <div class="badge-chip"><span class="dot"></span> Powered by Prediqt IQ</div>
+        <h1>Know the move <span class="gradient-text">before it</span> happens.</h1>
+        <p class="hero-sub">Prediqt uses data-driven intelligence to identify high-probability market moves — and teaches you exactly why they happen.</p>
+        <div class="hero-ctas">
+          <a href="#pricing" class="btn btn-primary">
+            Get Early Access
+            <svg class="arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
+          <a href="#features" class="btn btn-secondary">
+            View Live Predictions
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </a>
+        </div>
+        <div class="hero-pills">
+          <span class="pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Real-time market analysis
+          </span>
+          <span class="pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Data-driven predictions
+          </span>
+          <span class="pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Built for traders &amp; investors
+          </span>
+        </div>
+      </div>
+
+      <!-- ───── Dashboard mockup ───── -->
+      <div class="mockup">
+        <div class="mockup-card">
+          <div class="mockup-inner">
+            <aside class="mockup-sidebar">
+              <div class="mockup-sidebar-logo">
+                <span class="logo-mark"><img src="assets/logo_icon_cropped.png" alt="" class="logo-icon-img" /></span>
+                Prediqt
+              </div>
+              <div class="mockup-sidebar-item active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+              </div>
+              <div class="mockup-sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Signals
+              </div>
+              <div class="mockup-sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                Watchlist
+              </div>
+              <div class="mockup-sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Insights
+              </div>
+              <div class="mockup-sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                Portfolio
+              </div>
+              <div class="mockup-sidebar-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Settings
+              </div>
+            </aside>
+
+            <div class="mockup-main">
+              <div class="mockup-header">
+                <div>
+                  <div class="mockup-ticker-label">AAPL</div>
+                  <div class="mockup-ticker-sub">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.09-.5-2.08-.53-3.2 0-1.39.67-2.12.59-3-.33C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+                    Apple Inc.
+                  </div>
+                  <div class="mockup-price">$193.42</div>
+                  <div class="mockup-price-change">+2.38 (+1.24%)</div>
+                </div>
+                <div class="mockup-score">
+                  <div class="mockup-score-label">Prediqt IQ Score</div>
+                  <div class="gauge">
+                    <svg viewBox="0 0 120 66">
+                      <defs>
+                        <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stop-color="#2080e5"/>
+                          <stop offset="100%" stop-color="#06d6a0"/>
+                        </linearGradient>
+                      </defs>
+                      <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="#1a2233" stroke-width="8" stroke-linecap="round"/>
+                      <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="url(#gaugeGrad)" stroke-width="8" stroke-linecap="round" stroke-dasharray="137 157"/>
+                    </svg>
+                    <div class="gauge-value">87</div>
+                  </div>
+                  <div class="gauge-sub">High Confidence</div>
+                </div>
+              </div>
+
+              <div class="mockup-chart">
+                <svg viewBox="0 0 440 140" preserveAspectRatio="none">
+                  <!-- grid lines -->
+                  <line x1="0" y1="35"  x2="440" y2="35"  stroke="#1a2233" stroke-width="0.5" stroke-dasharray="2 4"/>
+                  <line x1="0" y1="75"  x2="440" y2="75"  stroke="#1a2233" stroke-width="0.5" stroke-dasharray="2 4"/>
+                  <line x1="0" y1="115" x2="440" y2="115" stroke="#1a2233" stroke-width="0.5" stroke-dasharray="2 4"/>
+                  <!-- area under trend -->
+                  <defs>
+                    <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#2080e5" stop-opacity="0.35"/>
+                      <stop offset="100%" stop-color="#2080e5" stop-opacity="0"/>
+                    </linearGradient>
+                  </defs>
+                  <path d="M20,100 L80,92 L140,96 L200,78 L260,70 L320,50 L380,38 L420,28 L420,140 L20,140 Z" fill="url(#areaGrad)"/>
+                  <!-- trend line -->
+                  <path d="M20,100 L80,92 L140,96 L200,78 L260,70 L320,50 L380,38 L420,28" fill="none" stroke="#2080e5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <!-- candlesticks -->
+                  <g stroke-width="1.3">
+                    <line x1="40"  y1="92"  x2="40"  y2="108" stroke="#10b981"/><rect x="34"  y="95"  width="12" height="10" fill="#10b981"/>
+                    <line x1="92"  y1="86"  x2="92"  y2="100" stroke="#10b981"/><rect x="86"  y="88"  width="12" height="9"  fill="#10b981"/>
+                    <line x1="144" y1="91"  x2="144" y2="105" stroke="#ef4444"/><rect x="138" y="94"  width="12" height="8"  fill="#ef4444"/>
+                    <line x1="196" y1="72"  x2="196" y2="88"  stroke="#10b981"/><rect x="190" y="74"  width="12" height="12" fill="#10b981"/>
+                    <line x1="248" y1="65"  x2="248" y2="78"  stroke="#10b981"/><rect x="242" y="68"  width="12" height="8"  fill="#10b981"/>
+                    <line x1="300" y1="44"  x2="300" y2="60"  stroke="#10b981"/><rect x="294" y="47"  width="12" height="11" fill="#10b981"/>
+                    <line x1="352" y1="32"  x2="352" y2="46"  stroke="#10b981"/><rect x="346" y="34"  width="12" height="10" fill="#10b981"/>
+                  </g>
+                  <!-- x-axis labels -->
+                  <g fill="#4a5a6e" font-size="8" font-family="Inter, sans-serif" font-weight="500">
+                    <text x="40"  y="134" text-anchor="middle">May 2</text>
+                    <text x="92"  y="134" text-anchor="middle">May 3</text>
+                    <text x="196" y="134" text-anchor="middle">May 5</text>
+                    <text x="300" y="134" text-anchor="middle">May 7</text>
+                    <text x="352" y="134" text-anchor="middle">May 8</text>
+                  </g>
+                </svg>
+              </div>
+
+              <div class="mockup-signal">
+                <div>
+                  <div class="mockup-signal-title">Prediqt Signal</div>
+                  <div class="mockup-signal-main">
+                    Bullish Breakout
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+                  </div>
+                  <div class="mockup-signal-date">May 8, 2024 &middot; 09:30 AM</div>
+                </div>
+                <div>
+                  <div class="mockup-signal-metric-label">Confidence</div>
+                  <div class="mockup-signal-metric-value green">87%</div>
+                </div>
+                <div>
+                  <div class="mockup-signal-metric-label">Time Horizon</div>
+                  <div class="mockup-signal-metric-value">2&ndash;5 Days</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       HOW IT WORKS — 3 STEPS
+       ═══════════════════════════════════════════════════════════ -->
+  <section id="how">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Not signals. Intelligence.</span>
+        <h2>Three steps to smarter decisions.</h2>
+      </div>
+      <div class="steps reveal">
+        <div class="step">
+          <div class="step-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          </div>
+          <div class="step-num">STEP 1</div>
+          <h3>Predict</h3>
+          <p>We analyze billions of data points to identify high-probability market moves before they happen.</p>
+        </div>
+        <div class="step">
+          <div class="step-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <div class="step-num">STEP 2</div>
+          <h3>Understand</h3>
+          <p>See the data, patterns and reasoning behind every prediction so you know exactly why.</p>
+        </div>
+        <div class="step">
+          <div class="step-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <div class="step-num">STEP 3</div>
+          <h3>Execute</h3>
+          <p>Act with confidence. No guesswork, no emotion &mdash; just high-probability opportunities.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       FEATURE BREAKDOWN
+       ═══════════════════════════════════════════════════════════ -->
+  <section id="features">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">The Prediqt Advantage</span>
+        <h2>Everything you need. Nothing you don't.</h2>
+      </div>
+      <div class="features reveal">
+        <div class="feature-grid">
+
+          <!-- Prediqt IQ -->
+          <div class="feature-card">
+            <div class="feature-head">
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><circle cx="12" cy="12" r="4"/><path d="M12 2v4M22 12h-4"/></svg>
+              </div>
+              <h3>Prediqt IQ</h3>
+            </div>
+            <p>Our proprietary AI engine analyzes price action, volume, news and sentiment in milliseconds.</p>
+            <div class="feature-visual">
+              <div class="iq-chip">IQ</div>
+            </div>
+          </div>
+
+          <!-- Prediqt Signals -->
+          <div class="feature-card">
+            <div class="feature-head">
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              </div>
+              <h3>Prediqt Signals</h3>
+            </div>
+            <p>Clear, actionable trade ideas delivered with entry, targets and risk levels.</p>
+            <div class="feature-visual">
+              <div class="signal-mini">
+                <div class="signal-mini-head">
+                  <span class="signal-mini-ticker">TSLA <span class="signal-mini-dir">&#8663; Long</span></span>
+                  <span class="signal-mini-conf">82%</span>
+                </div>
+                <div class="signal-mini-row"><span>Entry</span><b>188.36</b></div>
+                <div class="signal-mini-row"><span>Stop</span><b>171.20</b></div>
+                <div class="signal-mini-chart">
+                  <svg viewBox="0 0 200 40" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="sigArea" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#10b981" stop-opacity="0.4"/>
+                        <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M0,30 L20,28 L40,26 L60,24 L80,22 L100,18 L120,16 L140,10 L160,8 L180,6 L200,4 L200,40 L0,40 Z" fill="url(#sigArea)"/>
+                    <path d="M0,30 L20,28 L40,26 L60,24 L80,22 L100,18 L120,16 L140,10 L160,8 L180,6 L200,4" fill="none" stroke="#10b981" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Prediqt Score -->
+          <div class="feature-card">
+            <div class="feature-head">
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+              </div>
+              <h3>Prediqt Score</h3>
+            </div>
+            <p>Every prediction comes with a confidence score, so you can manage risk better.</p>
+            <div class="feature-visual">
+              <div class="score-visual">
+                <div class="gauge">
+                  <svg viewBox="0 0 120 66">
+                    <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="#1a2233" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="url(#gaugeGrad)" stroke-width="8" stroke-linecap="round" stroke-dasharray="137 157"/>
+                  </svg>
+                  <div class="gauge-value">87</div>
+                </div>
+                <div class="gauge-sub">High Confidence</div>
+                <div class="score-scale"><span>0</span><span>50</span><span>100</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Prediqt Insights -->
+          <div class="feature-card">
+            <div class="feature-head">
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              </div>
+              <h3>Prediqt Insights</h3>
+            </div>
+            <p>Learn the story behind the setup with key levels, catalysts and market context.</p>
+            <div class="feature-visual">
+              <div class="insights-list">
+                <div class="insights-row">
+                  <span class="insights-row-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    Key Level
+                  </span>
+                  <span class="insights-row-value">$192.50</span>
+                </div>
+                <div class="insights-row">
+                  <span class="insights-row-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    Catalyst
+                  </span>
+                  <span class="insights-row-value">Earnings Beat</span>
+                </div>
+                <div class="insights-row">
+                  <span class="insights-row-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                    Trend
+                  </span>
+                  <span class="insights-row-value bull">Strong Bullish</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       PERFORMANCE / TESTIMONIAL
+       ═══════════════════════════════════════════════════════════ -->
+  <section id="insights">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Built on performance</span>
+        <h2>Numbers traders actually care about.</h2>
+      </div>
+      <div class="perf-card reveal">
+        <div class="perf-grid">
+          <div>
+            <div class="stat-value">78%</div>
+            <div class="stat-label">Historical accuracy<br/>(backtested)</div>
+          </div>
+          <div>
+            <div class="stat-value">2.4x</div>
+            <div class="stat-label">Average risk / reward ratio</div>
+          </div>
+          <div>
+            <div class="stat-value">+37.6%</div>
+            <div class="stat-label">Avg monthly return<br/>(backtested)</div>
+          </div>
+          <div>
+            <div class="stat-value">50K+</div>
+            <div class="stat-label">Traders &amp; investors<br/>using Prediqt</div>
+          </div>
+          <div class="testimonial">
+            <div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+            <p>"Prediqt changed the way I trade. I finally understand the why behind the moves, not just the what."</p>
+            <div class="testimonial-author">
+              <div class="testimonial-avatar">AR</div>
+              <div class="testimonial-meta">
+                <div class="testimonial-name">Alex R.</div>
+                <div class="testimonial-role">Full-Time Trader</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       EDUCATION DIFFERENTIATOR
+       ═══════════════════════════════════════════════════════════ -->
+  <section class="edu">
+    <div class="container">
+      <div class="edu-card reveal">
+        <span class="eyebrow">Your edge</span>
+        <h2>Learn the market while you <span class="gradient-text">use it.</span></h2>
+        <p>Prediqt doesn't just tell you what to do &mdash; it shows you <em>why</em>. So you build real understanding, not dependency.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       PRICING
+       ═══════════════════════════════════════════════════════════ -->
+  <section id="pricing">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Simple. Fair. Powerful.</span>
+        <h2>Choose your edge.</h2>
+      </div>
+      <div class="pricing reveal">
+        <div class="price-grid">
+
+          <div class="price-card">
+            <div class="price-tier">Starter</div>
+            <p class="price-blurb">Perfect for getting started.</p>
+            <div class="price-amount">
+              <span class="price">$29</span>
+              <span class="period">/month</span>
+            </div>
+            <ul class="price-features">
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Daily Signals</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Prediqt Score</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Basic Insights</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Email Support</li>
+            </ul>
+            <a href="#" class="btn btn-secondary price-cta">Start Free Trial</a>
+          </div>
+
+          <div class="price-card featured">
+            <div class="price-badge">Most Popular</div>
+            <div class="price-tier">Pro</div>
+            <p class="price-blurb">Everything you need to level up.</p>
+            <div class="price-amount">
+              <span class="price">$79</span>
+              <span class="period">/month</span>
+            </div>
+            <ul class="price-features">
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Everything in Starter</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Full Prediqt IQ access</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Advanced Insights &amp; reasoning</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Priority Signals</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Discord Community</li>
+            </ul>
+            <a href="#" class="btn btn-primary price-cta">Start Free Trial</a>
+          </div>
+
+          <div class="price-card">
+            <div class="price-tier">Elite</div>
+            <p class="price-blurb">For serious traders &amp; investors.</p>
+            <div class="price-amount">
+              <span class="price">$149</span>
+              <span class="period">/month</span>
+            </div>
+            <ul class="price-features">
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Everything in Pro</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Elite IQ models</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Real-time alerts</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>1-on-1 strategy call</li>
+            </ul>
+            <a href="#" class="btn btn-secondary price-cta">Start Free Trial</a>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       FINAL CTA
+       ═══════════════════════════════════════════════════════════ -->
+  <section class="final-cta">
+    <div class="container">
+      <div class="final-cta-card reveal">
+        <div class="final-cta-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l10-10M7 7h10v10"/></svg>
+        </div>
+        <div class="final-cta-text">
+          <h2>The market moves fast. <span class="gradient-text">So should you.</span></h2>
+          <p>Join thousands of traders using Prediqt to stay ahead of the market.</p>
+        </div>
+        <a href="#pricing" class="btn btn-primary">
+          Get Started with Prediqt
+          <svg class="arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       FOOTER
+       ═══════════════════════════════════════════════════════════ -->
+  <footer>
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="#" class="logo" aria-label="Prediqt">
+            <img src="assets/logo_full_transparent.png" alt="Prediqt" class="logo-img" />
+          </a>
+          <p>See what happens next.<br/>Powered by Prediqt IQ.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#features">Signals</a></li>
+            <li><a href="#pricing">Pricing</a></li>
+            <li><a href="#features">Prediqt IQ</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="#">About Us</a></li>
+            <li><a href="#">Careers</a></li>
+            <li><a href="#">Blog</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="#">Insights</a></li>
+            <li><a href="#">Help Center</a></li>
+            <li><a href="#">Guides</a></li>
+            <li><a href="#">API</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Stay Connected</h4>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"/></svg></a>
+            <a href="#" aria-label="YouTube"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"/><path d="M9.75 15.02l5.75-3.27-5.75-3.27v6.54z" fill="#0a0e14"/></svg></a>
+            <a href="#" aria-label="Discord"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.2.4a13.4 13.4 0 0 0-6.3 0L8.7 3a19.8 19.8 0 0 0-4.9 1.4C1 9 .2 13.4.6 17.8a19.9 19.9 0 0 0 6.1 3 14.7 14.7 0 0 0 1.3-2.1 12.8 12.8 0 0 1-2-1l.5-.4a14.2 14.2 0 0 0 12.2 0l.5.4a12.8 12.8 0 0 1-2 1 14.7 14.7 0 0 0 1.3 2.1 19.9 19.9 0 0 0 6.1-3c.5-5.1-.7-9.5-3.6-13.4zM8.3 15.2c-1.2 0-2.2-1.1-2.2-2.5s1-2.5 2.2-2.5 2.2 1.1 2.2 2.5-1 2.5-2.2 2.5zm7.4 0c-1.2 0-2.2-1.1-2.2-2.5s1-2.5 2.2-2.5 2.2 1.1 2.2 2.5-1 2.5-2.2 2.5z"/></svg></a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Prediqt. All rights reserved.</span>
+        <span>For educational purposes only. Not financial advice.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    /* Smooth-scroll anchors handled by CSS scroll-behavior. */
+
+    /* Intersection observer for scroll-reveal */
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    /* Mobile nav toggle (placeholder — expand later if needed) */
+    const toggle = document.querySelector('.nav-toggle');
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        const links = document.querySelector('.nav-links');
+        if (!links) return;
+        const open = links.style.display === 'flex';
+        links.style.display = open ? 'none' : 'flex';
+        if (!open) {
+          links.style.flexDirection = 'column';
+          links.style.position = 'absolute';
+          links.style.top = '100%';
+          links.style.left = '0';
+          links.style.right = '0';
+          links.style.background = 'rgba(6,10,16,0.95)';
+          links.style.padding = '20px 24px';
+          links.style.borderBottom = '1px solid #1a2233';
+          links.style.backdropFilter = 'blur(14px)';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

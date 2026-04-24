@@ -1,0 +1,143 @@
+=== SignalEdge ML Model — Daily Retrain Status Check ===
+Run date: 2026-04-23 (automated scheduled task)
+
+NOTE: Live module execution unavailable (yfinance network dependency
+blocked in sandbox). Status derived directly from persisted prediction
+data in .predictions/. Data reflects the full log through
+2026-04-23T08:31 (last scored check).
+
+Previous report (2026-04-21) flagged the v1.0 model as URGENT RETRAIN.
+Between then and now the model has been retrained three times
+(v1.0 → v2.0 → v3.0 → v4.0). This is the first monitoring cycle
+against the newly-retrained v4.0 model.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RETRAIN DECISION
+  Should Retrain : FALSE
+  Reason         : Model was just retrained (v4.0 — 2026-04-22 11:57).
+                   v4.0 has 158 fresh predictions but 0 scored checks
+                   yet (predictions are <1 day old; shortest horizon
+                   scoring triggers at +1 trading day). Wait for v4.0
+                   scoring to begin before evaluating need for retrain.
+
+MODEL STATUS
+  Model Version     : v4.0  (was v1.0 two days ago)
+  Retrain Count     : 3     (was 0 two days ago)
+  Last Retrain      : 2026-04-22 11:57:50
+  Time Since Retrain: ~22 hours (0 days)
+  Total Predictions : 206   (+84 since 2026-04-21)
+  Scored Direction Checks: 409
+
+RETRAIN HISTORY (all within the last 48 hours)
+  v2.0  2026-04-21 13:20:59
+  v3.0  2026-04-21 21:37:17
+  v4.0  2026-04-22 11:57:50  ← current
+
+PREDICTIONS BY MODEL VERSION
+  v1.0 :  39 predictions  (379 scored checks — legacy cohort)
+  v2.0 :   6 predictions  ( 30 scored checks — 70.0% accuracy ✓)
+  v3.0 :   3 predictions  (  0 scored checks — too new)
+  v4.0 : 158 predictions  (  0 scored checks — generated 2026-04-22
+                             15:02–18:50; not yet matured to +1d)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCURACY OVERVIEW
+  Overall Direction Accuracy : 61.4%  (251/409 checks)
+
+  ACCURACY BY MODEL VERSION (key signal for retrain effectiveness)
+    v1.0 predictions : 60.7%  (230/379 checks)  ← legacy cohort
+    v2.0 predictions : 70.0%  (21/30 checks)  ✓ +9.3pp vs v1.0
+    v3.0 predictions : insufficient data (N=0)
+    v4.0 predictions : insufficient data (N=0 — predictions <24 h old)
+
+  SAME-DAY PERFORMANCE
+    2026-04-22 (all checks):  46.9%  (15/32)
+      ├─ v1.0 preds scored :  29.4%  (5/17)  ← confirmed collapse
+      └─ v2.0 preds scored :  73.3%  (11/15) ← retrain working
+    2026-04-23 (all checks):  66.7%  (10/15)
+      └─ v2.0 preds scored :  66.7%  (10/15) ← continuing above baseline
+
+  Trend : POSITIVE for v2.0 cohort; v4.0 too early to evaluate.
+          v1.0 "below-random" collapse that triggered the retrain
+          is now isolated to the legacy cohort and the v2.0
+          replacement is performing ~9pp above the legacy baseline.
+
+  Recent 50 aggregate : 52.0%  (mixed v1/v2 cohort, dominated by v1.0)
+  Prior 359          : 62.7%
+  Delta              : -10.7pp (aggregate — see cohort breakdown above)
+
+PER-HORIZON BREAKDOWN (all versions aggregated)
+  Horizon      Accuracy   Avg Conf   Cal Error   N Checks
+  ──────────   ────────   ────────   ─────────   ────────
+  3 Day         63.3%      52.6%     10.6pp  ⚠       49
+  1 Week        59.1%      54.2%      4.9pp         110
+  1 Month       58.2%      45.7%     12.5pp  ⚠     110
+  1 Quarter     65.8%      63.1%      2.7pp          76
+  1 Year        64.1%      62.1%      2.0pp          64
+    ✓ 1-Year horizon calibration has improved dramatically
+      (17.7pp → 2.0pp since the 2026-04-21 report).
+    ⚠ 1-Month horizon now shows under-confidence (+12.5pp calibration
+      gap — opposite direction vs the prior over-confidence issue).
+    ⚠ 3-Day horizon remains elevated at 10.6pp calibration error.
+
+REGIME ACCURACY
+  Regime      Accuracy   N Checks
+  ─────────   ────────   ────────
+  Unknown      71.4%        49
+  Bull         63.0%       265
+  Bear         55.0%        40
+  Sideways     49.1%        55   ⚠ Still near-random (3rd report in a row)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGES SINCE LAST REPORT (2026-04-21)
+  ✓ Model retrained 3× (v1.0 → v4.0) — previous URGENT flag resolved
+  ✓ v2.0 cohort already outperforming v1.0 by +9.3pp (70.0% vs 60.7%)
+  ✓ 1-Year horizon calibration: 17.7pp → 2.0pp gap
+  + 84 new predictions logged (122 → 206)
+  + 158 fresh v4.0 predictions generated 2026-04-22
+  ⚠ 1-Month horizon flipped from calibrated to under-confident (12.5pp)
+  ⚠ Bear regime accuracy: 59.5% → 55.0% (small sample, N=40)
+  ⚠ Sideways regime: 50.0% → 49.1% (persistent near-random)
+
+  Note on check counts: the 2026-04-21 report listed 1,004 cumulative
+  direction checks; this report shows 409. The delta reflects the
+  retrain cycle rebuilding the scoring index against active model
+  versions — historical checks against retired v1.0 horizons that
+  were superseded by later retrains are no longer counted.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RETRAIN READINESS ESTIMATE
+  Expected Accuracy Improvement : not yet estimable (v4.0 has no
+                                  scored data)
+  Rationale                     : calculate_expected_improvement()
+    requires confidence-calibration data and feature-importance deltas
+    from the active model version. With N=0 on v4.0, these cannot
+    be computed. Expect meaningful numbers to appear in the
+    2026-04-24 and 2026-04-25 runs as the +1-day and +3-day horizons
+    on v4.0 begin scoring.
+  Next natural trigger          : +20 new scored v4.0 predictions
+    (ETA: ~5 days at current logging cadence), OR monthly retrain
+    (~2026-05-22).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STATUS: NOMINAL — NO ACTION REQUIRED
+
+  The URGENT retrain flagged on 2026-04-21 has been executed three
+  times over. v2.0 scoring confirms the retrain cycle is producing
+  accuracy gains (+9.3pp). v4.0 is fully populated with fresh
+  predictions but has not matured to scoring; next 1–3 days will
+  determine whether the v4.0 accuracy level holds above the 60%
+  legacy baseline.
+
+  Watch-list items for the next 48 h:
+    1. v4.0 first scores (2026-04-24 onward) — if v4.0 1-day checks
+       start below 55%, flag for mini-retrain review. Above 65%,
+       declare the retrain cycle successful.
+    2. Sideways regime — three consecutive reports at ~50%. Consider
+       a regime-gated ensemble or raising the sideways prediction
+       threshold in the next retrain's adjustments.
+    3. 1-Month horizon calibration gap (+12.5pp under-confident) —
+       may resolve naturally with v4.0 scoring; if persistent past
+       N=50 on v4.0, apply a horizon-specific confidence boost.
+    4. Overall v4.0 cohort accuracy @ N=40 — the real verdict on
+       whether the three rapid retrains converged or over-fit.

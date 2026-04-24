@@ -24,11 +24,11 @@ THRESHOLDS = {
 }
 
 RECOMMENDATION_COLORS = {
-    "Strong Buy":  "#00c853",
-    "Buy":         "#69f0ae",
-    "Hold":        "#ffd740",
-    "Sell":        "#ff6d00",
-    "Strong Sell": "#d50000",
+    "Strong Buy":  "#06d6a0",   # brand cyan
+    "Buy":         "#4be3c0",   # lighter cyan
+    "Hold":        "#f5b841",   # warm amber (readable on dark)
+    "Sell":        "#f27d5c",   # soft coral
+    "Strong Sell": "#e04a4a",   # muted red (matches CHART_DOWN)
 }
 
 
@@ -81,9 +81,17 @@ def generate_analysis(
     current_price = float(df["Close"].iloc[-1])
 
     # ── Primary signal: 1-month prediction ───────────────────────────────────
-    one_month_ret = predictions["1 Month"]["predicted_return"]
-    recommendation = _classify_return(one_month_ret)
-    confidence     = _confidence(one_month_ret)
+    # Try 1 Month first, then fall back to any available horizon
+    one_month_ret = 0.0
+    recommendation = "Hold"
+    confidence = "Low"
+
+    for key in ["1 Month", "1 Week", "3 Day", "1 Quarter", "1 Year"]:
+        if key in predictions:
+            one_month_ret = predictions[key]["predicted_return"]
+            recommendation = _classify_return(one_month_ret)
+            confidence = _confidence(one_month_ret)
+            break
 
     # ── Price targets ─────────────────────────────────────────────────────────
     targets = {}
@@ -302,9 +310,10 @@ def _build_signals(df: pd.DataFrame, tech: dict, predictions: dict) -> list:
         signals.append(("Volume", "Neutral", f"Volume {vr:.1f}× average — normal activity"))
 
     # ML model (short + long-term agreement)
-    w_ret  = predictions["1 Week"]["predicted_return"]
-    m_ret  = predictions["1 Month"]["predicted_return"]
-    q_ret  = predictions["1 Quarter"]["predicted_return"]
+    # Safely extract returns from available horizons
+    w_ret  = predictions.get("1 Week", {}).get("predicted_return", 0)
+    m_ret  = predictions.get("1 Month", {}).get("predicted_return", 0)
+    q_ret  = predictions.get("1 Quarter", {}).get("predicted_return", 0)
 
     if w_ret > 0 and m_ret > 0 and q_ret > 0:
         signals.append(("ML Forecast", "Bullish",
