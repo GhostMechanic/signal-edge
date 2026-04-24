@@ -1,7 +1,40 @@
+# ── Python environments ─────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Python runtime / build artifacts ────────────────────────
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
+*.pyd
+.Python
 *.egg-info/
 dist/
 build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ── Secrets / env ───────────────────────────────────────────
 .env
+.env.local
+
+# ── macOS / IDE ─────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+
+# ── Streamlit local ─────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Model / data outputs (keep local only) ─────────────────
+.benchmarks/
+.models/*.pkl
+.models/*.joblib
+.~lock.*#
+
+# Excel/Numbers lock files + backups
+~$*.xlsx
+*.xlsx.bak
