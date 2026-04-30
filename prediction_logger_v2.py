@@ -19,6 +19,7 @@ Usage:
 """
 
 import json
+import logging
 import os
 import uuid
 import numpy as np
@@ -28,9 +29,15 @@ from typing import Optional, List
 
 import yfinance as yf
 
+# SQLite-backed durable store. Replaces the JSON file as the source of
+# truth — see prediction_store.py for the schema and rationale.
+import prediction_store
+
+logger = logging.getLogger(__name__)
+
 # ─── Paths ───────────────────────────────────────────────────────────────────
 LOG_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".predictions")
-LOG_FILE = os.path.join(LOG_DIR, "prediction_log_v2.json")
+LOG_FILE = os.path.join(LOG_DIR, "prediction_log_v2.json")  # legacy; no longer written
 IMPORTANCE_FILE = os.path.join(LOG_DIR, "feature_importance.json")
 MODEL_VERSION_FILE = os.path.join(LOG_DIR, "model_versions.json")
 
@@ -55,21 +62,74 @@ def _ensure_dir():
 # DATA I/O
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class LogCorruptedError(Exception):
+    """
+    Raised when the prediction log file exists on disk but can't be
+    parsed as a JSON array. We bubble this up rather than silently
+    treating the log as empty, because a silent fallback to [] meant a
+    single subsequent write would atomically replace the entire history
+    with one entry — exactly the failure mode that wiped 1,062
+    predictions in late April 2026.
+    """
+
+
 def _load_log() -> list:
-    _ensure_dir()
-    if os.path.exists(LOG_FILE):
-        try:
-            with open(LOG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+    """
+    Return all predictions in the legacy list-of-dicts shape, sourced
+    from the SQLite store.
+
+    Kept around as a compat shim so all the analytics code in this
+    module (get_full_analytics, score_all_intervals, deduplicate_log,
+    etc.) keeps working unchanged. Direct SQLite access via
+    prediction_store is preferred for new code.
+    """
+    return prediction_store.get_all_predictions()
 
 
 def _save_log(entries: list):
-    _ensure_dir()
-    with open(LOG_FILE, "w") as f:
-        json.dump(entries, f, indent=2, default=str)
+    """
+    Compatibility shim — older code paths in this module loaded the
+    full log with _load_log(), mutated entries in-place, then saved
+    the entire list back. With SQLite as the source of truth that's
+    no longer the right model: we now upsert each entry individually.
+
+    Shrink-guard: refuse to operate if `entries` is materially smaller
+    than what's currently stored. The legitimate callers (log_prediction,
+    score_all_intervals, backtest_accuracy) only ever modify entries
+    in-place or append; they never bulk-delete. A shrink here is a bug.
+    """
+    current_count = prediction_store.count_predictions()
+    if len(entries) < current_count - 1:
+        raise RuntimeError(
+            f"Refusing to shrink prediction log from "
+            f"{current_count} → {len(entries)} entries via _save_log. "
+            f"This would destroy data. If this is intentional "
+            f"(e.g., one-time pruning), call _save_log_unsafe() "
+            f"explicitly."
+        )
+
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("prediction_id"):
+            continue
+        try:
+            prediction_store.insert_prediction(entry)
+        except Exception as e:
+            print(f"[_save_log] failed to upsert {entry.get('symbol')} {entry.get('prediction_id')}: {e}")
+
+
+def _save_log_unsafe(entries: list):
+    """
+    Bypass the shrink-guard. Used by the deduplicate_log() one-shot
+    cleanup, which intentionally collapses duplicate (symbol, date)
+    rows. Still goes through the SQLite upsert path — no JSON write.
+    """
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("prediction_id"):
+            continue
+        try:
+            prediction_store.insert_prediction(entry)
+        except Exception as e:
+            print(f"[_save_log_unsafe] failed to upsert {entry.get('symbol')} {entry.get('prediction_id')}: {e}")
 
 
 def _load_importance() -> dict:
@@ -116,74 +176,332 @@ def log_prediction_v2(
     feature_importance: Optional[dict] = None,
     model_version: str = "1.0",
     regime: str = "Unknown",
+    *,
+    ohlc_df: Optional[pd.DataFrame] = None,
+    user_id: Optional[str] = None,
+    user_horizon_code: Optional[str] = None,
+    options_strategies: Optional[dict] = None,
+    out_meta: Optional[dict] = None,
 ) -> str:
     """
     Log a new prediction with enhanced tracking.
-    Returns prediction_id.
+
+    Returns the prediction_id (a full UUID), or "" if the underlying store
+    rejected the write. Routes through `db.insert_prediction()` so file
+    mode and Supabase mode are transparent to the caller.
+
+    Phase ordering (per data-model anchor § 5 — model_paper_trades.prediction_id
+    is a FK to predictions.id, so the prediction row must land first):
+      1. Generate UUID.
+      2. Compute trade plan + TRADE/PASS decision (no DB writes).
+      3. Stamp plan + decision onto the record.
+      4. Insert prediction row (db.insert_prediction handles the
+         file-vs-Supabase routing).
+      5. If decision.traded: open the model paper trade — references the
+         now-existing prediction by FK.
+
+    `ohlc_df` is optional but strongly preferred. When omitted, the
+    prediction persists with `traded=False` and no plan; callers that
+    don't yet pass OHLC keep working without re-architecture.
+
+    Failures in steps 2, 3, or 5 are logged but never block step 4. The
+    user always gets a persisted prediction; the model's portfolio just
+    doesn't reflect predictions that broke trade attachment.
     """
-    entries = _load_log()
-    pred_id = str(uuid.uuid4())[:8]
+    # Full UUID (was 8-char prefix). Required for Supabase predictions.id
+    # which is `uuid` type. Legacy 8-char IDs in existing SQLite rows are
+    # untouched — the column is TEXT so it tolerates either width.
+    pred_id = str(uuid.uuid4())
+
+    # ── Anchor § 8.1 same-day dedupe ──────────────────────────────────────
+    # If this user already has a prediction for (symbol, user_horizon_code)
+    # within the current UTC day, return that prediction's id and skip all
+    # downstream work — no fresh insert, no trade-plan compute, no
+    # model_paper_trades open. Prevents duplicate ledger rows and the
+    # scoring imbalance that would follow from two scored outcomes against
+    # what the user means as one prediction.
+    #
+    # Granularity:
+    #   • Supabase mode:  (user_id, symbol, horizon_code, today_utc)
+    #   • File-mode:      (symbol, today_utc) — legacy SQLite has no
+    #                     user_id and rolls all five horizons under one
+    #                     prediction_id, so the dedupe is per-symbol.
+    try:
+        from db import find_todays_prediction
+        existing_pred_id = find_todays_prediction(
+            symbol=symbol,
+            horizon_code=user_horizon_code,
+            user_id=user_id,
+        )
+        if existing_pred_id:
+            print(
+                f"[log_prediction_v2 {symbol}] dedupe hit — re-ask of "
+                f"existing prediction {existing_pred_id} (user_horizon="
+                f"{user_horizon_code}); skipping insert + trade-open per "
+                f"anchor § 8.1"
+            )
+            return existing_pred_id
+    except Exception as exc:
+        # Lookup failure is non-fatal: fall through to the normal write
+        # path. Worst case we get a duplicate row (the existing behavior
+        # before this change) — the dedupe is a guarantee, not a critical
+        # path.
+        logger.exception(
+            "find_todays_prediction failed for %s; proceeding with fresh "
+            "write: %s", symbol, exc,
+        )
 
     record = {
-        "prediction_id":  pred_id,
-        "symbol":         symbol.upper(),
-        "timestamp":      datetime.now().isoformat(),
-        "model_version":  model_version,
-        "regime":         regime,
-        "horizons":       {},
+        "prediction_id":     pred_id,
+        "symbol":            symbol.upper(),
+        "timestamp":         datetime.now().isoformat(),
+        "model_version":     model_version,
+        "regime":            regime,
+        "horizons":          {},
+        # Anchor-doc §§ 2.1, 4.4 fields. Filled by _compute_trade_attachment
+        # below when ohlc_df is provided. Persisted by the Supabase write
+        # path; ignored by the legacy SQLite store until those columns
+        # land there too.
+        "traded":            False,
+        "entry_price":       None,
+        "stop_price":        None,
+        "target_price":      None,
+        "trade_pass_reason": None,
+        "model_trade_id":    None,
+        # User's selected horizon (3d|1w|1m|1q|1y). When set, the Supabase
+        # writer uses this as the canonical row's horizon — so the public
+        # ledger reflects what the user *asked*, not what the priority-
+        # based fallback would pick. None means "use default fallback."
+        "user_horizon_code": user_horizon_code,
+        # Per-horizon options strategies recommended at predict-time. The
+        # Supabase writer pulls the canonical horizon's strategy out and
+        # persists it on the row's `options_strategy` JSONB column, so
+        # users can paper-trade the play later from the detail page.
+        # File-mode SQLite ignores this field.
+        "options_strategies": options_strategies,
     }
 
     for horizon, data in predictions.items():
         pred_return = data.get("predicted_return", 0)
         record["horizons"][horizon] = {
-            "predicted_return":  pred_return,
-            "predicted_price":   data.get("predicted_price", 0),
-            "current_price":     data.get("current_price", 0),
-            "confidence":        data.get("confidence", 0),
+            "predicted_return":   pred_return,
+            "predicted_price":    data.get("predicted_price", 0),
+            "current_price":      data.get("current_price", 0),
+            "confidence":         data.get("confidence", 0),
             "ensemble_agreement": data.get("ensemble_agreement", 0),
-            "val_dir_accuracy":  data.get("val_dir_accuracy", 0),
-            "direction":         "up" if pred_return > 0 else "down",
-
-            # Feature importance snapshot for this prediction
-            "top_features":      _top_features(feature_importance, horizon) if feature_importance else [],
-
-            # Progressive scoring slots
-            "scores": {},   # { "1d": {...}, "3d": {...}, "7d": {...}, ... }
-            "final_scored":  False,
-            "final_correct": None,
+            "val_dir_accuracy":   data.get("val_dir_accuracy", 0),
+            "direction":          "up" if pred_return > 0 else "down",
+            "top_features":       _top_features(feature_importance, horizon) if feature_importance else [],
+            "scores":             {},
+            "final_scored":       False,
+            "final_correct":      None,
         }
 
-    # ── Deduplication: replace existing entry for same symbol + date ──
-    # If we already ran analysis for this symbol today, update it instead of
-    # appending a duplicate.  Preserves any scores already recorded.
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    replaced = False
-    for i, existing in enumerate(entries):
-        if (existing["symbol"] == record["symbol"]
-                and existing["timestamp"][:10] == today_str):
-            # Carry over any scores from the old entry so we don't lose graded data
-            for horizon, new_hdata in record["horizons"].items():
-                old_hdata = existing.get("horizons", {}).get(horizon, {})
-                old_scores = old_hdata.get("scores", {})
-                if old_scores:
-                    new_hdata["scores"] = old_scores
-                    # Also preserve final flags
-                    if old_hdata.get("final_scored"):
-                        new_hdata["final_scored"] = True
-                        new_hdata["final_correct"] = old_hdata.get("final_correct")
-            entries[i] = record
-            replaced = True
-            break
+    # ── Phase 1+2: compute the trade plan + TRADE/PASS decision ──────────────
+    # Pure logic, no DB writes. Stamps plan + decision onto `record`.
+    pending_open: Optional[dict] = None
+    if ohlc_df is not None:
+        try:
+            pending_open = _compute_trade_attachment(record, predictions, ohlc_df, symbol)
+        except Exception as exc:
+            logger.exception(
+                "trade attachment compute failed for %s/%s; prediction will "
+                "persist with traded=False: %s", symbol, pred_id, exc
+            )
 
-    if not replaced:
-        entries.append(record)
+    # ── Phase 3: persist the prediction row (db handles routing) ─────────────
+    try:
+        from db import insert_prediction as _db_insert_prediction
+        persisted_id = _db_insert_prediction(record, user_id=user_id) or pred_id
+    except Exception as e:
+        # If db.insert_prediction fails (e.g. Supabase offline), fall back
+        # to the legacy SQLite store directly so we don't lose the data.
+        logger.exception("db.insert_prediction failed; falling back to "
+                         "prediction_store: %s", e)
+        try:
+            prediction_store.insert_prediction(record)
+            persisted_id = pred_id
+        except Exception as e2:
+            print(f"[log_prediction_v2] CRITICAL: store insert failed: {e2}")
+            return ""
 
-    # Keep last 5000 entries
-    if len(entries) > 5000:
-        entries = entries[-5000:]
+    # ── Phase 4: open the model paper trade (only when decision said TRADE) ──
+    # Now safe to open: the prediction row exists and the FK can resolve.
+    if pending_open is not None:
+        try:
+            _open_pending_model_trade(record, persisted_id, pending_open)
+        except Exception as exc:
+            # Trade-open failure leaves the prediction in a slightly
+            # inconsistent state (traded=true on the row, no
+            # model_paper_trades row). Log loudly so the audit job can
+            # surface it; don't roll back the prediction itself.
+            logger.exception(
+                "model trade open FAILED for %s/%s — prediction is "
+                "persisted with traded=true but no model_paper_trades row "
+                "exists. Audit follow-up required: %s",
+                symbol, persisted_id, exc
+            )
 
-    _save_log(entries)
-    return pred_id
+    # Side-channel metadata for callers (api/main.py) that want the
+    # trade-attachment outcome surfaced on the predict response without
+    # changing log_prediction_v2's return type. Populated only when an
+    # `out_meta` dict was supplied; non-blocking if not.
+    if out_meta is not None and isinstance(out_meta, dict):
+        out_meta["traded"]            = bool(record.get("traded", False))
+        out_meta["trade_pass_reason"] = record.get("trade_pass_reason")
+        out_meta["entry_price"]       = record.get("entry_price")
+        out_meta["stop_price"]        = record.get("stop_price")
+        out_meta["target_price"]      = record.get("target_price")
+        # Compute the actual R:R the geometry produced — useful both for
+        # the frontend's "no trade — risk geometry" copy and for any
+        # downstream telemetry that wants to histogram R:R distribution.
+        try:
+            entry  = record.get("entry_price")
+            stop   = record.get("stop_price")
+            target = record.get("target_price")
+            if entry is not None and stop is not None and target is not None:
+                risk = abs(float(entry) - float(stop))
+                rew  = abs(float(target) - float(entry))
+                out_meta["risk_reward"] = round(rew / risk, 4) if risk > 0 else None
+            else:
+                out_meta["risk_reward"] = None
+        except Exception:  # noqa: BLE001
+            out_meta["risk_reward"] = None
+
+    return persisted_id
+
+
+# ─── Trade attachment (anchor docs §§ 2.1, 4.4) ───────────────────────────────
+
+# Lazy-import the orchestrator + repo so this module still works on hosts
+# where the new files haven't been deployed yet. Resolved on first use.
+_compute_trade_attachment_fn = None
+_open_model_trade_fn         = None
+_get_portfolio_repo_fn       = None
+_canonical_universe_fn       = None
+
+
+def _resolve_trade_imports():
+    """Lazy-import the trade-attachment dependencies. Caches resolution
+    on the module so we only pay the import cost once."""
+    global _compute_trade_attachment_fn, _open_model_trade_fn
+    global _get_portfolio_repo_fn, _canonical_universe_fn
+    if _compute_trade_attachment_fn is None:
+        from prediqt_open_trade import (
+            compute_trade_attachment,
+            open_model_trade_for_prediction,
+        )
+        from model_portfolio import get_portfolio_repo
+        try:
+            from universe import canonical_universe as _uni
+        except (ImportError, AttributeError):
+            _uni = lambda: frozenset()
+        _compute_trade_attachment_fn = compute_trade_attachment
+        _open_model_trade_fn         = open_model_trade_for_prediction
+        _get_portfolio_repo_fn       = get_portfolio_repo
+        _canonical_universe_fn       = _uni
+    return (
+        _compute_trade_attachment_fn,
+        _open_model_trade_fn,
+        _get_portfolio_repo_fn,
+        _canonical_universe_fn,
+    )
+
+
+def _compute_trade_attachment(
+    record: dict,
+    predictions: dict,
+    ohlc_df: pd.DataFrame,
+    symbol: str,
+) -> Optional[dict]:
+    """Phase 1: compute plan + decision, stamp onto `record`.
+
+    Returns a `pending_open` payload (dict with the data needed to open
+    the trade in Phase 4) when the decision is TRADE; None when PASS.
+    """
+    compute_fn, _open_fn, get_repo, get_universe = _resolve_trade_imports()
+
+    # Same long-form horizon name lookup db._pick_canonical_horizon uses.
+    # When the user picked a specific horizon at /api/predict (e.g. "1y"),
+    # the trade attachment honors it — so target_price = predicted_price
+    # for the *user's* horizon, not always for the 1-Month default.
+    HORIZON_CODE_TO_NAME = {
+        "3d": "3 Day", "1w": "1 Week", "1m": "1 Month",
+        "1q": "1 Quarter", "1y": "1 Year",
+    }
+    HORIZON_PRIORITY = ["1 Month", "1 Quarter", "1 Year", "1 Week", "3 Day"]
+
+    user_code = record.get("user_horizon_code")
+    horizon = None
+    if user_code:
+        candidate = HORIZON_CODE_TO_NAME.get(user_code)
+        if candidate and candidate in predictions:
+            horizon = candidate
+    # Fallback to priority-list pick when the user didn't supply a horizon
+    # (CLI batch scans, legacy callers) or the picked horizon was suppressed.
+    if horizon is None:
+        horizon = next((h for h in HORIZON_PRIORITY if h in predictions), None)
+    if horizon is None:
+        return None
+
+    h = predictions[horizon]
+    confidence      = float(h.get("confidence", 0) or 0)
+    entry_price     = float(h.get("current_price", 0) or 0)
+    predicted_price = float(h.get("predicted_price", 0) or 0)
+    pred_return     = float(h.get("predicted_return", 0) or 0)
+
+    if entry_price <= 0 or predicted_price <= 0:
+        return None
+
+    # Direction with the methodology § 4.1 deadband — see trade_decision.
+    from trade_decision import direction_from_return
+    direction = direction_from_return(pred_return)
+
+    repo  = get_repo()
+    state = repo.get_state()
+    res   = compute_fn(
+        symbol             = symbol,
+        direction          = direction,
+        confidence         = confidence,
+        entry_price        = entry_price,
+        predicted_price    = predicted_price,
+        ohlc_for_atr       = ohlc_df,
+        canonical_universe = get_universe(),
+        portfolio_state    = state,
+    )
+
+    record["entry_price"]       = res.plan.entry_price
+    record["stop_price"]        = res.plan.stop_price
+    record["target_price"]      = res.plan.target_price
+    record["traded"]            = res.decision.traded
+    record["trade_pass_reason"] = (
+        res.decision.reason.value if res.decision.reason is not None else None
+    )
+
+    if res.decision.traded:
+        return {
+            "symbol":          symbol,
+            "direction":       direction,
+            "plan":            res.plan,
+            "portfolio_repo":  repo,
+            "portfolio_state": state,
+        }
+    return None
+
+
+def _open_pending_model_trade(record: dict, persisted_id: str, pending: dict) -> None:
+    """Phase 4: open the model paper trade. Called only after the
+    prediction row has been inserted (so the FK on prediction_id resolves)."""
+    _compute, open_fn, _repo_factory, _uni = _resolve_trade_imports()
+    open_result = open_fn(
+        prediction_id   = persisted_id,
+        symbol          = pending["symbol"],
+        direction       = pending["direction"],
+        plan            = pending["plan"],
+        portfolio_repo  = pending["portfolio_repo"],
+        portfolio_state = pending["portfolio_state"],
+    )
+    record["model_trade_id"] = open_result.trade_id
 
 
 def deduplicate_log() -> dict:
@@ -231,7 +549,9 @@ def deduplicate_log() -> dict:
 
     # Sort by timestamp
     cleaned.sort(key=lambda e: e["timestamp"])
-    _save_log(cleaned)
+    # deduplicate_log is the one legitimate caller that shrinks the
+    # entry count, so it bypasses the shrink-guard explicitly.
+    _save_log_unsafe(cleaned)
 
     return {"original": original_count, "cleaned": len(cleaned), "removed": original_count - len(cleaned)}
 
