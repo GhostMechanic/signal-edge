@@ -436,10 +436,22 @@ class StockPredictor:
         os.makedirs(self._model_dir, exist_ok=True)
         return os.path.join(self._model_dir, f"{self.symbol}_meta.json")
 
-    def save_model(self):
-        """Save trained model to disk for reuse."""
+    def save_model(self, train_data_period: Optional[str] = None):
+        """Save trained model to disk for reuse.
+
+        train_data_period (e.g. "10y", "7y") is the size of the OHLC window
+        the model was trained on. The API caller stamps it in so the
+        auto-retrain detector (api.main._needs_refresh) can spot legacy
+        models that were trained against a smaller schema and force a
+        retrain. Stored as an attribute on the predictor and persisted in
+        the meta JSON so load_model() round-trips it.
+        """
         if not self.is_trained:
             return
+        # Stamp the period onto the predictor so the same instance reads
+        # consistent — api.main._needs_refresh inspects this attribute.
+        if train_data_period is not None:
+            self.train_data_period = train_data_period
         # Save heavy objects (sklearn models, scalers) via joblib
         model_data = {
             "l1_members":      self.l1_members,
@@ -460,6 +472,9 @@ class StockPredictor:
                               for h, cal in self.calibration.items()},
             "horizons":      list(self.l1_members.keys()),
             "training_version": TRAINING_VERSION,
+            # Optional — only present once a retrain has stamped it.
+            # getattr so older predictors (pre-stamp) still serialize.
+            "train_data_period": getattr(self, "train_data_period", None),
         }
         with open(self._meta_path(), "w") as f:
             json.dump(meta, f, indent=2, default=str)
@@ -496,6 +511,15 @@ class StockPredictor:
             self.feature_names   = meta.get("feature_names", [])
             # Restore calibration (without pairs to save memory)
             self.calibration     = meta.get("calibration", {})
+            # Restore the training-data period so api.main._needs_refresh
+            # can detect schema drift on legacy models. Older meta files
+            # without this key resolve to None, which the detector
+            # correctly treats as "needs refresh."
+            self.train_data_period = meta.get("train_data_period")
+            # Mirror trained_at onto the instance for the same auto-retrain
+            # detector — it reads `trained_at_iso` to decide if the model
+            # has aged past MODEL_MAX_AGE_DAYS.
+            self.trained_at_iso  = meta.get("trained_at")
             self.is_trained      = True
             return True
         except Exception:
