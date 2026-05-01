@@ -1,0 +1,84 @@
+name: Score
+
+# Cron-driven invocations of scoring_worker. The Render free tier doesn't
+# run background workers, so this workflow is the only thing that calls
+# tick() / eod_pass() / user_eod_pass() / refresh_model_adjustments() in
+# production.
+#
+# Methodology § 4.3:
+#   Every 5 min during US market hours (9:30 AM – 4:00 PM ET) → tick()
+#   Once at 4:15 PM ET                                         → tick + eod + users + refresh
+#
+# Cron times below are in UTC. Coverage notes:
+#   • EDT (March–Nov, currently in effect): market is 13:30–20:00 UTC.
+#     `*/5 13-20 * * 1-5` runs every 5 min at the top of each hour
+#     13–20 inclusive. Slightly over-covers (13:00–13:25 are pre-market;
+#     scoring those is harmless — yfinance just returns the previous
+#     close, no horizons cross, no trades close).
+#   • EST (Nov–March): market is 14:30–21:00 UTC. The current schedule
+#     misses ~21:00 ticks in winter. When DST flips, expand the upper
+#     bound to 21 (`*/5 13-21 * * 1-5`) or split into two ranges. We
+#     accept the gap for now — this is a hobby cron, not a market-maker.
+#
+# Pre-reqs in the GitHub repo (Settings → Secrets and variables → Actions):
+#   • SUPABASE_URL                  — https://<project>.supabase.co
+#   • SUPABASE_SERVICE_ROLE_KEY     — sb_secret_* (service role, NOT anon)
+
+on:
+  schedule:
+    # Tick every 5 min during US market hours.
+    - cron: '*/5 13-20 * * 1-5'
+    # EOD pass: 4:15 PM ET = 20:15 UTC during EDT.
+    - cron: '15 20 * * 1-5'
+  # Manual trigger for ad-hoc backfills, refreshes, or recovery runs.
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'tick | eod | users | both | refresh | retrain_pending'
+        default: 'tick'
+        required: true
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Don't pile up runs if a previous tick is still mid-yfinance call.
+    # Scoring is idempotent, so cancelling an in-flight run loses nothing.
+    concurrency:
+      group: scoring-worker
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        # The full requirements.txt includes streamlit / shap / optuna
+        # which the scoring worker doesn't import. Installing the lot
+        # anyway because requirements.txt is the source of truth and a
+        # split requirements-worker.txt is one more thing to keep in
+        # sync. Cold install is ~60s; warm cache is ~10s.
+        run: pip install -r requirements.txt
+
+      - name: Run worker
+        env:
+          USE_SUPABASE: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # workflow_dispatch forwards its `command` input.
+          # Scheduled runs decide tick vs both based on the EOD slot:
+          # the 20:15 UTC entry gets `both` (tick + eod + users + refresh),
+          # every other slot gets plain `tick`.
+          if [ -n "${{ inputs.command }}" ]; then
+            CMD='${{ inputs.command }}'
+          elif [ "$(date -u +%H:%M)" = "20:15" ]; then
+            CMD='both'
+          else
+            CMD='tick'
+          fi
+          echo "Running: python -m scoring_worker $CMD"
+          python -m scoring_worker "$CMD"
