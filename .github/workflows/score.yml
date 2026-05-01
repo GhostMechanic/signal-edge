@@ -63,6 +63,25 @@ jobs:
         # sync. Cold install is ~60s; warm cache is ~10s.
         run: pip install -r requirements.txt
 
+      # TEMP DEBUG — what role does the secret actually resolve to?
+      # If this prints "service_role", the GRANT we issued should be honored.
+      # If it prints "anon" or anything else, the GitHub secret is wrong.
+      # Remove this step once scoring is confirmed working.
+      - name: Debug — whoami via PostgREST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "URL prefix: ${SUPABASE_URL:0:40}..."
+          echo "Key prefix (first 12 chars): ${SUPABASE_SERVICE_ROLE_KEY:0:12}..."
+          echo "Calling whoami() RPC:"
+          curl -s -X POST "${SUPABASE_URL}/rest/v1/rpc/whoami" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' | tr -d '\n'
+          echo
+
       - name: Run worker
         env:
           USE_SUPABASE: 'true'
