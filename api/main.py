@@ -98,6 +98,12 @@ app = FastAPI(
 # domains, preview deploys on other hosts, etc.
 _DEFAULT_ORIGINS = [
     "http://localhost:3000",
+    # The actual deployed Vercel project name is `predqt-web` (no "i" in
+    # the middle). Earlier copies of this allowlist had `prediqt-web`
+    # which doesn't match anything live and silently broke production.
+    # Keep both spellings in case anyone ever forks under the alternate
+    # name; both are no-ops if no project resolves there.
+    "https://predqt-web.vercel.app",
     "https://prediqt-web.vercel.app",
 ]
 _EXTRA_ORIGINS = [
@@ -106,8 +112,10 @@ _EXTRA_ORIGINS = [
     if o.strip()
 ]
 ALLOWED_ORIGINS = _DEFAULT_ORIGINS + _EXTRA_ORIGINS
-# Vercel preview deploys (prediqt-web-{hash}.vercel.app) always allowed.
-ALLOW_ORIGIN_REGEX = r"https://prediqt-web-[a-z0-9-]+\.vercel\.app"
+# Vercel preview deploys (predqt-web-{hash}.vercel.app) always allowed.
+# Same dual-spelling note applies — match either the actual project name
+# or the legacy intended one.
+ALLOW_ORIGIN_REGEX = r"https://(predqt|prediqt)-web-[a-z0-9-]+\.vercel\.app"
 
 app.add_middleware(
     CORSMiddleware,
