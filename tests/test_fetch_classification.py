@@ -40,6 +40,8 @@ from data_fetcher import (
     TickerDataUnavailableError,
     _ticker_exists,
     _normalise_ohlcv,
+    _fetch_via_stooq,
+    _period_to_trading_days,
 )
 
 
@@ -191,6 +193,114 @@ class NormaliseOhlcvShape(unittest.TestCase):
         out = _normalise_ohlcv(df)
         for col in ("Open", "High", "Low", "Close", "Volume"):
             self.assertIn(col, out.columns)
+
+
+class StooqFallback(unittest.TestCase):
+    """Path 4 in fetch_stock_data: when every yfinance code path
+    returns empty, we hit Stooq (different vendor) before giving up.
+    This is the actual production fix for the CROC outage — yfinance
+    was getting empty payloads from Fly.io's IP because Yahoo's chart
+    endpoint silently throttles cloud datacenter ranges. Stooq isn't
+    affected by that throttle."""
+
+    _STOOQ_CSV = (
+        "Date,Open,High,Low,Close,Volume\n"
+        "2026-04-28,86.50,87.20,86.10,86.95,1500000\n"
+        "2026-04-29,86.95,88.10,86.80,87.85,1620000\n"
+        "2026-04-30,87.85,88.50,87.20,87.42,1480000\n"
+    )
+
+    def _mock_response(self, status: int, body: str):
+        m = MagicMock()
+        m.status_code = status
+        m.text = body
+        return m
+
+    def test_stooq_serves_data_when_yfinance_empty(self):
+        """All three yfinance paths fail, Stooq returns CSV → we get
+        a normalised frame with data_source='stooq' attached."""
+        empty = pd.DataFrame()
+        with patch.object(data_fetcher.yf, "Ticker") as mock_ticker_cls, \
+             patch.object(data_fetcher.yf, "download", return_value=empty), \
+             patch.object(data_fetcher.time, "sleep"), \
+             patch("requests.get") as mock_get:
+            mock_ticker_cls.return_value.history.return_value = empty
+            mock_get.return_value = self._mock_response(200, self._STOOQ_CSV)
+
+            out = fetch_stock_data("CROC", period="2y")
+
+        self.assertEqual(len(out), 3)
+        self.assertEqual(out.attrs.get("data_source"), "stooq")
+        self.assertIn("Close", out.columns)
+        # First request hit `croc.us` per Stooq's US convention
+        called_url = mock_get.call_args.args[0]
+        self.assertIn("s=croc.us", called_url)
+
+    def test_stooq_no_data_response_falls_through(self):
+        """Stooq's literal 'No data' body is treated as failure → we
+        fall through to classification rather than returning a phantom
+        success."""
+        empty = pd.DataFrame()
+        with patch.object(data_fetcher.yf, "Ticker") as mock_ticker_cls, \
+             patch.object(data_fetcher.yf, "download", return_value=empty), \
+             patch.object(data_fetcher.time, "sleep"), \
+             patch("requests.get") as mock_get:
+            mock_t = mock_ticker_cls.return_value
+            mock_t.history.return_value = empty
+            # Both Stooq candidates return "No data"
+            mock_get.return_value = self._mock_response(200, "No data\n")
+            # Ticker is real per fast_info → should classify as transient
+            mock_t.fast_info = {"last_price": 87.42}
+            mock_t.info = {"symbol": "CROC"}
+
+            with self.assertRaises(TickerDataUnavailableError):
+                fetch_stock_data("CROC", period="2y")
+
+    def test_stooq_html_error_page_falls_through(self):
+        """Stooq sometimes serves an HTML error page on bad symbols.
+        The leading `<` should be detected and skipped, not parsed
+        as CSV."""
+        with patch("requests.get") as mock_get:
+            mock_get.return_value = self._mock_response(
+                200, "<!DOCTYPE html><html>error</html>",
+            )
+            out = _fetch_via_stooq("ZZZNOTREAL", period="1y")
+        self.assertIsNone(out)
+
+    def test_stooq_trims_to_period(self):
+        """Stooq returns ALL history; we trim to ~1.5x the requested
+        period to keep memory bounded for downstream feature
+        engineering."""
+        # 1000 days of synthetic history
+        big_csv = "Date,Open,High,Low,Close,Volume\n"
+        for i in range(1000):
+            d = pd.Timestamp("2022-01-01") + pd.Timedelta(days=i)
+            big_csv += f"{d.date()},100,101,99,100,1000000\n"
+        with patch("requests.get") as mock_get:
+            mock_get.return_value = self._mock_response(200, big_csv)
+            out = _fetch_via_stooq("FOO", period="1y")
+        self.assertIsNotNone(out)
+        # 1y → 252 trading days × 1.5 = 378 row cap
+        self.assertLessEqual(len(out), 378)
+
+
+class PeriodToTradingDays(unittest.TestCase):
+
+    def test_year_units(self):
+        self.assertEqual(_period_to_trading_days("1y"), 252)
+        self.assertEqual(_period_to_trading_days("2y"), 504)
+        self.assertEqual(_period_to_trading_days("10y"), 2520)
+
+    def test_month_units(self):
+        self.assertEqual(_period_to_trading_days("1mo"), 21)
+        self.assertEqual(_period_to_trading_days("6mo"), 126)
+
+    def test_max_returns_none(self):
+        self.assertIsNone(_period_to_trading_days("max"))
+
+    def test_garbage_returns_none(self):
+        self.assertIsNone(_period_to_trading_days("garbage"))
+        self.assertIsNone(_period_to_trading_days(""))
 
 
 if __name__ == "__main__":

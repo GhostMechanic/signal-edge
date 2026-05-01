@@ -119,18 +119,128 @@ SECTOR_ETFS = {
 def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     """Common post-processing on the raw yfinance frame: tz-strip the
     index, keep just the OHLCV columns, drop NaN rows. Centralised so
-    the multiple fetch paths (Ticker.history vs yf.download) produce
-    identical-shaped output."""
+    the multiple fetch paths (Ticker.history vs yf.download vs Stooq)
+    produce identical-shaped output."""
     # yf.download with multiple symbols can return a MultiIndex on
     # columns; with a single symbol that should not happen, but newer
     # yfinance versions sometimes still wrap. Flatten defensively.
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
+    # Some sources (Stooq) emit naive indexes already; the tz_localize
+    # step would no-op there, but guard against tz-aware indexes from
+    # yfinance which always come UTC-stamped.
+    idx = pd.to_datetime(df.index)
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_localize(None)
+    df = df.copy()
+    df.index = idx
     cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
     df = df[cols].copy()
     df.dropna(inplace=True)
     return df
+
+
+def _period_to_trading_days(period: str) -> Optional[int]:
+    """Rough mapping from a yfinance-style period string ('2y', '6mo',
+    '60d', 'max') to an approximate trading-day count. Used to trim
+    Stooq's "all history" response back down to roughly what the caller
+    asked for, so feature engineering doesn't run on years of extra
+    rows. None means "no trim — keep what you have"."""
+    p = (period or "").lower().strip()
+    if not p or p == "max":
+        return None
+    try:
+        if p.endswith("y"):
+            return int(float(p[:-1]) * 252)
+        if p.endswith("mo"):
+            return int(float(p[:-2]) * 21)
+        if p.endswith("d"):
+            return int(float(p[:-1]))
+    except ValueError:
+        return None
+    return None
+
+
+def _fetch_via_stooq(symbol: str, period: str) -> Optional[pd.DataFrame]:
+    """Free OHLCV fallback when Yahoo's chart endpoint is throttling us.
+
+    Stooq publishes daily CSV at ``https://stooq.com/q/d/l/?s=<sym>&i=d``
+    with no auth, no key, no advertised rate-limit. Critically: it's
+    reliable from cloud-hosted IPs where Yahoo's chart endpoint has
+    been silently returning empty payloads since late 2024. US tickers
+    take a ``.us`` suffix.
+
+    Caveat: Stooq's prices are NOT split-adjusted. For US equities with
+    no recent splits this matches yfinance's ``auto_adjust=True`` output
+    closely. For split-affected tickers there will be drift. The
+    tradeoff is worth it: a slightly-less-perfect prediction beats no
+    prediction at all.
+
+    Returns None on any failure path so the caller can continue to its
+    classification step. Callers that want to know whether Stooq served
+    the data should look at ``df.attrs.get('data_source')``.
+    """
+    try:
+        import requests
+        from io import StringIO
+    except Exception:
+        return None
+
+    sym_lower = symbol.lower()
+    # Stooq quirk: most US equities resolve as ``<sym>.us``. Try the
+    # bare symbol as a backup for tickers that don't follow that
+    # convention (rare, but cheap to attempt).
+    candidates = [f"{sym_lower}.us", sym_lower]
+
+    for stooq_sym in candidates:
+        try:
+            url = f"https://stooq.com/q/d/l/?s={stooq_sym}&i=d"
+            r = requests.get(
+                url,
+                timeout=10,
+                headers={
+                    # Plain Mozilla UA is enough — Stooq doesn't
+                    # fingerprint the way Yahoo does.
+                    "User-Agent": (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                },
+            )
+            if r.status_code != 200:
+                continue
+            text = r.text.strip()
+            # Two failure modes: an HTML error page (starts with `<`)
+            # or a literal "No data" body. Both are non-CSV.
+            if not text or text.startswith("<") or "No data" in text:
+                continue
+
+            df = pd.read_csv(StringIO(text))
+            if df.empty or "Date" not in df.columns:
+                continue
+
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date")
+            df.index.name = None
+
+            # Stooq returns ALL history by default. Trim to roughly
+            # the period the caller asked for plus 50% headroom (so
+            # rolling features that look 200 days back still have
+            # warmup). Memory matters: scoring_worker calls this
+            # constantly.
+            n_days = _period_to_trading_days(period)
+            if n_days is not None and len(df) > int(n_days * 1.5):
+                df = df.tail(int(n_days * 1.5))
+
+            # Tag the source so downstream callers / logs can tell
+            # which path served the data. df.attrs survives most
+            # pandas operations.
+            df.attrs["data_source"] = "stooq"
+            return df
+        except Exception:
+            continue
+    return None
 
 
 def _ticker_exists(symbol: str) -> bool:
@@ -189,7 +299,10 @@ def fetch_stock_data(symbol: str, period: str = "7y") -> pd.DataFrame:
       3. If still empty, fall back to ``yf.download`` which uses a
          slightly different code path internally and can succeed when
          ``Ticker.history`` has hit a rate-limit.
-      4. If every path still failed, classify by polling info /
+      4. If yfinance is fully blocked (Yahoo throttling our cloud IP
+         range), fall back to Stooq — a different vendor entirely.
+         Returned frame carries ``df.attrs['data_source'] = 'stooq'``.
+      5. If every path still failed, classify by polling info /
          fast_info — if Yahoo recognises the symbol we raise
          ``TickerDataUnavailableError`` (transient, user should retry);
          otherwise ``TickerNotFoundError`` (real spelling problem).
@@ -227,6 +340,23 @@ def fetch_stock_data(symbol: str, period: str = "7y") -> pd.DataFrame:
         )
         if df is not None and not df.empty:
             return _normalise_ohlcv(df)
+    except Exception as e:
+        last_err = e
+
+    # ── Path 4: Stooq fallback (different vendor entirely) ─────────────
+    # When all of Yahoo is throttling us — even via a Chrome-impersonated
+    # session — the next best move is a different data provider. Stooq
+    # is free, no auth, and reliable from cloud datacenter IPs. The
+    # tradeoff is unadjusted prices, which matters for tickers with
+    # recent splits but is fine for most of our universe.
+    try:
+        df = _fetch_via_stooq(symbol, period)
+        if df is not None and not df.empty:
+            print(f"[data_fetcher] {symbol}: served via Stooq fallback "
+                  f"(yfinance returned empty {3} times)")
+            normalised = _normalise_ohlcv(df)
+            normalised.attrs["data_source"] = "stooq"
+            return normalised
     except Exception as e:
         last_err = e
 
