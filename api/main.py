@@ -2484,12 +2484,34 @@ def predict_symbol(
 
         # Fetch fresh data
         try:
-            from data_fetcher import fetch_stock_data, fetch_market_context
+            from data_fetcher import (
+                fetch_stock_data,
+                fetch_market_context,
+                TickerNotFoundError,
+                TickerDataUnavailableError,
+            )
         except Exception as e:
             return {"error": "import_failed", "detail": str(e)}
 
         try:
             df = fetch_stock_data(sym, period="2y")
+        except TickerNotFoundError as e:
+            # Yahoo doesn't recognise the symbol → real "check spelling"
+            # case. Don't print a traceback; this isn't a backend bug.
+            return {
+                "error": "ticker_not_found",
+                "symbol": sym,
+                "detail": str(e),
+            }
+        except TickerDataUnavailableError as e:
+            # Symbol is valid, Yahoo's feed is just being flaky right
+            # now. Retryable on the user's side — surface that.
+            return {
+                "error": "data_temporarily_unavailable",
+                "symbol": sym,
+                "detail": str(e),
+                "retryable": True,
+            }
         except Exception as e:
             print(f"[predict {sym}] fetch_stock_data crashed:")
             traceback.print_exc()

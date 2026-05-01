@@ -16,11 +16,77 @@ New in v2:
 import warnings
 warnings.filterwarnings("ignore")
 
+import time
 import numpy as np
 import pandas as pd
 import yfinance as yf
 from typing import Optional
 from datetime import datetime
+
+
+# ─── Browser-impersonating session (anti-rate-limit) ──────────────────────────
+# Yahoo Finance has been actively blocking and rate-limiting requests
+# from cloud-datacenter IP ranges (Fly.io, Render, AWS, GCP) since late
+# 2024. The plain `requests` library yfinance uses by default produces
+# a TLS handshake that's trivially fingerprintable as "Python script,"
+# and Yahoo just returns empty payloads.
+#
+# curl_cffi is a `requests`-compatible session that uses libcurl with
+# Chrome's actual TLS fingerprint, so the request looks like a browser
+# from the wire. Combined with cookie-jar reuse across calls, this
+# dramatically reduces the rate of empty fetches.
+#
+# yfinance natively accepts a `session=` kwarg on Ticker / download.
+# We build the session lazily so unit tests that don't need it (and
+# environments where curl_cffi isn't installed) still work — the
+# fallback is a regular requests.Session.
+_YF_SESSION: Optional[object] = None
+_YF_SESSION_FAILED: bool = False
+
+
+def _yf_session():
+    """Lazy-build a Chrome-impersonating session for yfinance. Falls
+    back to None (default yfinance behaviour) if curl_cffi isn't
+    available, so this never breaks tests or environments where the
+    extra dependency isn't installed yet."""
+    global _YF_SESSION, _YF_SESSION_FAILED
+    if _YF_SESSION is not None or _YF_SESSION_FAILED:
+        return _YF_SESSION
+    try:
+        # curl_cffi exposes a `Session` that's a drop-in replacement for
+        # requests.Session but uses libcurl with browser TLS impersonation.
+        from curl_cffi import requests as curl_requests  # type: ignore
+        _YF_SESSION = curl_requests.Session(impersonate="chrome")
+        return _YF_SESSION
+    except Exception:
+        # Mark as failed so we don't retry the import on every fetch
+        # call — that would be a measurable perf hit on busy endpoints.
+        _YF_SESSION_FAILED = True
+        return None
+
+
+# ─── Typed fetch errors ───────────────────────────────────────────────────────
+# These let callers (api/main.py) tell apart the two reasons a price
+# fetch can come back empty:
+#   • TickerNotFoundError       — Yahoo doesn't recognise the symbol at
+#                                 all. Show the user "check the spelling."
+#   • TickerDataUnavailableError — Yahoo recognises the ticker but its
+#                                 chart endpoint returned nothing right
+#                                 now (rate-limit, transient API hiccup,
+#                                 brief outage). The right UX is "try
+#                                 again in a moment," not "your ticker
+#                                 is wrong."
+# Both subclass ValueError so existing `except Exception` paths
+# elsewhere in the codebase keep working unchanged.
+
+class TickerNotFoundError(ValueError):
+    """Yahoo doesn't know this symbol."""
+    pass
+
+
+class TickerDataUnavailableError(ValueError):
+    """Yahoo knows the symbol but can't serve price data right now."""
+    pass
 
 # ─── Horizons ─────────────────────────────────────────────────────────────────
 HORIZONS = {
@@ -50,20 +116,137 @@ SECTOR_ETFS = {
 
 # ─── Data Download ────────────────────────────────────────────────────────────
 
-def fetch_stock_data(symbol: str, period: str = "7y") -> pd.DataFrame:
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(period=period, auto_adjust=True)
-    if df.empty:
-        raise ValueError(f"No data returned for '{symbol}'. Check the ticker symbol.")
+def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """Common post-processing on the raw yfinance frame: tz-strip the
+    index, keep just the OHLCV columns, drop NaN rows. Centralised so
+    the multiple fetch paths (Ticker.history vs yf.download) produce
+    identical-shaped output."""
+    # yf.download with multiple symbols can return a MultiIndex on
+    # columns; with a single symbol that should not happen, but newer
+    # yfinance versions sometimes still wrap. Flatten defensively.
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index).tz_localize(None)
-    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+    df = df[cols].copy()
     df.dropna(inplace=True)
     return df
 
 
+def _ticker_exists(symbol: str) -> bool:
+    """Best-effort check: does Yahoo recognise this symbol at all?
+
+    Used only when every history-fetch path has already returned empty —
+    so we can decide whether to surface "ticker not found" (bad spelling)
+    vs "data temporarily unavailable" (valid ticker, transient outage).
+
+    yfinance offers two sources of liveness signals — fast_info (cheap,
+    structured) and the full info dict (richer but slower and more
+    failure-prone). We poll both and treat any hit as "ticker exists."
+    """
+    try:
+        tk = yf.Ticker(symbol, session=_yf_session())
+        # fast_info: small struct, sometimes a dict, sometimes an object.
+        try:
+            fi = tk.fast_info
+            for k in ("last_price", "previous_close",
+                      "regular_market_price", "regularMarketPrice"):
+                v = fi.get(k) if isinstance(fi, dict) else getattr(fi, k, None)
+                if v is not None and v == v:  # not NaN
+                    return True
+        except Exception:
+            pass
+        # Full info — heavier, but the canonical "is this a real
+        # security?" source.
+        try:
+            info = tk.info or {}
+            for k in ("symbol", "shortName", "longName", "quoteType",
+                      "regularMarketPrice"):
+                if info.get(k):
+                    return True
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
+
+
+def fetch_stock_data(symbol: str, period: str = "7y") -> pd.DataFrame:
+    """Download OHLCV history for ``symbol``.
+
+    Yahoo's chart endpoint occasionally returns an empty dataframe for
+    perfectly valid tickers — usually rate-limiting, sometimes a brief
+    API hiccup. The original implementation surfaced that as
+    ``"No data returned for X. Check the ticker symbol."`` which is
+    misleading (the ticker is fine — Yahoo is just being flaky) and
+    poisons the UX: the user looks at the form, second-guesses their
+    spelling, and walks away.
+
+    The new flow:
+      1. Try ``Ticker.history`` (the original path).
+      2. If it returned empty, retry once after a short backoff —
+         absorbs most transient hiccups.
+      3. If still empty, fall back to ``yf.download`` which uses a
+         slightly different code path internally and can succeed when
+         ``Ticker.history`` has hit a rate-limit.
+      4. If every path still failed, classify by polling info /
+         fast_info — if Yahoo recognises the symbol we raise
+         ``TickerDataUnavailableError`` (transient, user should retry);
+         otherwise ``TickerNotFoundError`` (real spelling problem).
+    """
+    # ── Path 1+2: Ticker.history with one short retry ──────────────────
+    sess = _yf_session()
+    last_err: Optional[BaseException] = None
+    for attempt in range(2):
+        try:
+            df = yf.Ticker(symbol, session=sess).history(
+                period=period, auto_adjust=True,
+            )
+        except Exception as e:
+            last_err = e
+            df = None
+        if df is not None and not df.empty:
+            return _normalise_ohlcv(df)
+        if attempt == 0:
+            # Short backoff before retrying. Long enough that Yahoo's
+            # rate-limiter has a chance to forget about us, short enough
+            # that the user still sees the prediction within a few seconds.
+            time.sleep(0.4)
+
+    # ── Path 3: yf.download fallback ───────────────────────────────────
+    # yf.download uses a different request path under the hood. When
+    # Ticker.history is being throttled, yf.download often still works.
+    try:
+        df = yf.download(
+            symbol,
+            period=period,
+            progress=False,
+            auto_adjust=True,
+            threads=False,
+            session=sess,
+        )
+        if df is not None and not df.empty:
+            return _normalise_ohlcv(df)
+    except Exception as e:
+        last_err = e
+
+    # ── Classification ─────────────────────────────────────────────────
+    # All three fetch paths returned empty. Decide whether to tell the
+    # user "your ticker is wrong" or "Yahoo is being flaky, retry."
+    if _ticker_exists(symbol):
+        raise TickerDataUnavailableError(
+            f"Yahoo Finance returned no price data for '{symbol}' right now. "
+            f"This is usually a transient feed issue — try again in a moment."
+        )
+    raise TickerNotFoundError(
+        f"Yahoo Finance doesn't recognise the symbol '{symbol}'. "
+        f"Double-check the spelling."
+    )
+
+
 def fetch_stock_info(symbol: str) -> dict:
     try:
-        info = yf.Ticker(symbol).info
+        info = yf.Ticker(symbol, session=_yf_session()).info
         return {
             "name":        info.get("longName", symbol),
             "sector":      info.get("sector", "N/A"),
@@ -89,7 +272,7 @@ def fetch_fundamentals(symbol: str) -> dict:
     Gracefully returns empty dict on failure.
     """
     try:
-        tk = yf.Ticker(symbol)
+        tk = yf.Ticker(symbol, session=_yf_session())
         info = tk.info or {}
 
         fundamentals = {}
@@ -160,7 +343,7 @@ def fetch_earnings_data(symbol: str) -> dict:
         "past_dates_surprise": [],
     }
     try:
-        tk = yf.Ticker(symbol)
+        tk = yf.Ticker(symbol, session=_yf_session())
 
         # ── Days to next earnings ────────────────────────────────────────
         # Primary: tk.calendar (cleanest, but yfinance sometimes returns
@@ -270,7 +453,7 @@ def fetch_options_data(symbol: str, current_price: float) -> dict:
       - skew: put IV / call IV (tail risk indicator)
     """
     try:
-        tk = yf.Ticker(symbol)
+        tk = yf.Ticker(symbol, session=_yf_session())
         options_chain = tk.options
 
         if not options_chain:
@@ -355,7 +538,7 @@ def fetch_options_data(symbol: str, current_price: float) -> dict:
 def _fetch_series(symbol: str, period: str = "7y") -> pd.Series:
     """Fetch a single close-price series; return empty Series on failure."""
     try:
-        t  = yf.Ticker(symbol)
+        t  = yf.Ticker(symbol, session=_yf_session())
         df = t.history(period=period, auto_adjust=True)
         if df.empty:
             return pd.Series(dtype=float)

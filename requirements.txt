@@ -1,5 +1,11 @@
 streamlit>=1.32.0
-yfinance>=0.2.37
+# yfinance 0.2.55+ ships much better handling for Yahoo's 2024-2025
+# blocking of cloud-datacenter IPs. Older versions (0.2.37 etc.) get
+# empty dataframes for valid tickers when Yahoo decides our IP looks
+# bot-ish. The curl_cffi pin below makes yfinance impersonate Chrome's
+# TLS fingerprint, which dramatically lowers the rate of empty fetches.
+yfinance>=0.2.55
+curl_cffi>=0.7.0
 xgboost>=1.7.0
 scikit-learn>=1.2.0
 pandas>=1.5.0
@@ -14,3 +20,10 @@ shap>=0.41.0
 # ── Phase 1: Supabase backend (only needed when USE_SUPABASE=true) ───────────
 supabase>=2.0.0
 python-dotenv>=1.0.0
+# ── FastAPI wrapper (api/main.py — used in production deployment) ────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+# PyJWT 2.4+ has PyJWKClient (used by api/auth.py to verify Supabase
+# ES256 tokens against the project's JWKS endpoint). The [crypto] extra
+# pulls in `cryptography` for ECDSA verification.
+PyJWT[crypto]>=2.4.0
