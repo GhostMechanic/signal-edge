@@ -1,0 +1,45 @@
+# Render deployment config for the Prediqt API.
+# Connect this repo on render.com and it'll pick up this blueprint.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Tier choice: `plan: free` for hobby use. Tradeoff is that the
+# service spins down after 15 minutes of no requests; first hit after
+# spin-down takes ~30 seconds while the container restarts. Acceptable
+# for a personal project; bump to `plan: starter` ($7/mo) for snappy
+# always-on behavior.
+#
+# Persistent disk removed — free tier doesn't include it, and the
+# backend stores everything in Supabase anyway. If you ever bump to
+# starter and want local SQLite/.predictions persistence back, add:
+#   disk:
+#     name: prediqt-data
+#     mountPath: /app/data
+#     sizeGB: 1
+
+services:
+  - type: web
+    name: prediqt-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free                   # upgrade to starter for no spin-down
+    region: oregon               # change to match your user base
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # USE_SUPABASE flips the backend off the legacy SQLite store
+      # and onto the Supabase ledger that the frontend already reads.
+      # Without this, predictions write to a /app/data SQLite file
+      # that doesn't survive a free-tier restart.
+      - key: USE_SUPABASE
+        value: "true"
+      # ──────────────────────────────────────────────────────────────
+      # Set the secret env vars in the Render dashboard, NOT here:
+      #   • SUPABASE_URL = https://<your-project>.supabase.co
+      #   • SUPABASE_SERVICE_ROLE_KEY = sb_secret_*
+      # Render's blueprint format accepts plaintext values inline; we
+      # avoid that on purpose so secrets never land in the repo.
+      # ──────────────────────────────────────────────────────────────

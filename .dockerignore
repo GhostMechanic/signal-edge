@@ -1,0 +1,94 @@
+# ─── Exclusions for the Docker build context ────────────────────────────────
+# The Dockerfile uses `COPY . .` to grab the whole repo; this file shapes
+# what actually lands in the image. Goal: ship the FastAPI + ML modules and
+# pre-trained models, drop everything else.
+
+# Python dev artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# Caches + tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.benchmarks/
+
+# Secrets — never bake these into the image.
+.env
+.env.local
+.env.*
+.streamlit/secrets.toml
+DB password.rtf
+*.rtf
+
+# Streamlit UI files — not part of the API runtime. Excluding them keeps
+# the image small and prevents Streamlit's dependencies from being pulled
+# in by transitive imports.
+app.py
+analyzer.py
+batch_scanner.py
+benchmark.py
+diag_importance.py
+backtester.py
+auto_retrain.py
+daily_briefing.py
+sentiment_analyzer.py
+paper_trader.py
+predictions_page.py
+track_record_page.py
+dashboard_page.py
+portfolio_page.py
+watchlist_page.py
+watchlist.py
+stock_detail_page.py
+recover_from_v1_log.py
+backfill_regimes.py
+backfill_top_features.py
+migrate_to_sqlite.py
+
+# Local prediction store + scratch databases. The deployed backend uses
+# Supabase (USE_SUPABASE=true in render.yaml), so these aren't needed.
+.predictions/
+
+# Local-only / dev artifacts
+.DS_Store
+.vscode/
+.idea/
+*.xlsx.bak
+~$*.xlsx
+retrain.log
+*.log
+
+# Git internals
+.git/
+.gitignore
+.github/
+
+# Documentation — useful for humans, dead weight for runtime
+docs/
+*.md
+PHASE_*
+SUPABASE_SETUP.md
+DEPLOY.md
+
+# Tests + scripts — not used at runtime
+tests/
+scripts/
+
+# Other deploy configs (not needed inside the image)
+fly.toml
+render.yaml
+
+# Notes:
+#   • .models/ is INCLUDED (no exclude rule for it) — the joblib files are
+#     required for inference. Each is ~1-5MB, ~250 tickers → image will
+#     be ~1GB. Slower builds but acceptable for free-tier hobby use.
+#   • supabase/migrations/ is INCLUDED for reference, even though Supabase
+#     applies them out-of-band. Tiny SQL files, harmless to ship.
