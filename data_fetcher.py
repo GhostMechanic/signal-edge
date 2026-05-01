@@ -80,8 +80,15 @@ def _yf_session():
 # elsewhere in the codebase keep working unchanged.
 
 class TickerNotFoundError(ValueError):
-    """Yahoo doesn't know this symbol."""
-    pass
+    """Yahoo doesn't know this symbol (or it's delisted with no live
+    price feed). Carries an optional ``suggestions`` list — tickers
+    Yahoo's search endpoint thinks the user might have meant. The API
+    layer surfaces these so the UI can render 'did you mean CROX?'
+    chips instead of the same static suggestion list every time."""
+
+    def __init__(self, message: str, suggestions: Optional[list] = None):
+        super().__init__(message)
+        self.suggestions: list = list(suggestions or [])
 
 
 class TickerDataUnavailableError(ValueError):
@@ -244,19 +251,28 @@ def _fetch_via_stooq(symbol: str, period: str) -> Optional[pd.DataFrame]:
 
 
 def _ticker_exists(symbol: str) -> bool:
-    """Best-effort check: does Yahoo recognise this symbol at all?
+    """Best-effort check: does Yahoo recognise this symbol AS A LIVE,
+    actively-trading security?
 
-    Used only when every history-fetch path has already returned empty —
-    so we can decide whether to surface "ticker not found" (bad spelling)
-    vs "data temporarily unavailable" (valid ticker, transient outage).
+    We're strict about "live" here. Yahoo continues to serve stale
+    metadata (shortName, longName, quoteType, even the symbol itself)
+    for delisted tickers long after their price feed dies. If we treat
+    metadata as proof of life, a delisted symbol like CROC (the
+    ProShares UltraShort Yen ETF that ProShares wound down) gets
+    routed to "transient feed issue, retry" — i.e. we tell the user
+    to keep hammering the same dead symbol. That's the worst kind of
+    UX failure: we look broken when really their input is wrong.
 
-    yfinance offers two sources of liveness signals — fast_info (cheap,
-    structured) and the full info dict (richer but slower and more
-    failure-prone). We poll both and treat any hit as "ticker exists."
+    So: return True only when Yahoo serves a CURRENT price field
+    (last_price / previous_close / regularMarketPrice). Pure metadata
+    is treated as "not alive," which routes the failure to
+    TickerNotFoundError → "we couldn't find that ticker, check the
+    spelling" (and now: 'did you mean CROX?').
     """
     try:
         tk = yf.Ticker(symbol, session=_yf_session())
-        # fast_info: small struct, sometimes a dict, sometimes an object.
+        # fast_info: cheap, structured, contains ONLY price-adjacent
+        # fields, so any non-None value here is a strong "alive" signal.
         try:
             fi = tk.fast_info
             for k in ("last_price", "previous_close",
@@ -266,19 +282,69 @@ def _ticker_exists(symbol: str) -> bool:
                     return True
         except Exception:
             pass
-        # Full info — heavier, but the canonical "is this a real
-        # security?" source.
+        # Full info — heavier. We accept it as evidence ONLY if it
+        # carries a non-None ``regularMarketPrice``. Don't trust
+        # ``shortName`` / ``longName`` / ``quoteType`` / ``symbol`` —
+        # those persist for delisted tickers indefinitely.
         try:
             info = tk.info or {}
-            for k in ("symbol", "shortName", "longName", "quoteType",
-                      "regularMarketPrice"):
-                if info.get(k):
-                    return True
+            price = info.get("regularMarketPrice")
+            if price is not None and price == price:
+                return True
         except Exception:
             pass
     except Exception:
         pass
     return False
+
+
+def _suggest_similar_tickers(symbol: str, max_results: int = 5) -> list:
+    """Best-effort 'did you mean...' for the ticker_not_found UX.
+
+    yfinance's Search endpoint (0.2.50+) hits Yahoo's autocomplete API
+    and returns lookalike securities. We use it to power the small
+    suggestion chip row that replaces the static fallback when the
+    user typed a delisted or misspelled ticker (CROC → CROX, AAPLE →
+    AAPL, MICROSOFT → MSFT).
+
+    Strict filters: only EQUITY/ETF results (no FX, futures, crypto),
+    skip the literal input, dedupe, cap at ``max_results``. Never
+    raises — returns ``[]`` on any failure so callers can fall back
+    to static suggestions cleanly.
+    """
+    try:
+        # Search class is in yfinance 0.2.50+. Pass news_count=0 to
+        # skip the news fetch we don't need.
+        search = yf.Search(
+            symbol, max_results=max_results, news_count=0,
+            session=_yf_session(),
+        )
+        quotes = getattr(search, "quotes", None) or []
+    except Exception:
+        return []
+
+    out: list = []
+    seen: set = {symbol.upper().strip()}
+    for q in quotes:
+        if not isinstance(q, dict):
+            continue
+        sym = q.get("symbol")
+        if not sym or not isinstance(sym, str):
+            continue
+        sym = sym.upper().strip()
+        if sym in seen:
+            continue
+        # Skip non-equity/ETF results — futures, FX, crypto, indexes
+        # rarely make for useful 'did you mean' suggestions when the
+        # user typed a stock-like ticker.
+        qtype = (q.get("quoteType") or "").upper()
+        if qtype and qtype not in ("EQUITY", "ETF"):
+            continue
+        out.append(sym)
+        seen.add(sym)
+        if len(out) >= max_results:
+            break
+    return out
 
 
 def fetch_stock_data(symbol: str, period: str = "7y") -> pd.DataFrame:
@@ -361,16 +427,23 @@ def fetch_stock_data(symbol: str, period: str = "7y") -> pd.DataFrame:
         last_err = e
 
     # ── Classification ─────────────────────────────────────────────────
-    # All three fetch paths returned empty. Decide whether to tell the
+    # All four fetch paths returned empty. Decide whether to tell the
     # user "your ticker is wrong" or "Yahoo is being flaky, retry."
+    # Strict liveness check (live price required, not just metadata)
+    # means delisted symbols correctly route to the not-found branch.
     if _ticker_exists(symbol):
         raise TickerDataUnavailableError(
             f"Yahoo Finance returned no price data for '{symbol}' right now. "
             f"This is usually a transient feed issue — try again in a moment."
         )
+    # Symbol is unknown / delisted. Best-effort fuzzy suggestions
+    # ('did you mean CROX?'). Empty list is fine — the UI falls back
+    # to its static suggestion chips.
+    suggestions = _suggest_similar_tickers(symbol)
     raise TickerNotFoundError(
         f"Yahoo Finance doesn't recognise the symbol '{symbol}'. "
-        f"Double-check the spelling."
+        f"Double-check the spelling.",
+        suggestions=suggestions,
     )
 
 

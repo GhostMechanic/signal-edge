@@ -42,6 +42,7 @@ from data_fetcher import (
     _normalise_ohlcv,
     _fetch_via_stooq,
     _period_to_trading_days,
+    _suggest_similar_tickers,
 )
 
 
@@ -162,11 +163,15 @@ class TickerExistsHelper(unittest.TestCase):
             mock_t.info = {}
             self.assertTrue(_ticker_exists("AAPL"))
 
-    def test_recognises_via_info_quote_type(self):
+    def test_recognises_via_info_regular_market_price(self):
+        """info.regularMarketPrice is the only metadata-channel signal
+        we accept, because it's the only one Yahoo stops serving when
+        a ticker is delisted."""
         with patch.object(data_fetcher.yf, "Ticker") as mock_ticker_cls:
             mock_t = mock_ticker_cls.return_value
             mock_t.fast_info = {}
-            mock_t.info = {"quoteType": "EQUITY", "shortName": "Foo Corp"}
+            mock_t.info = {"quoteType": "EQUITY", "shortName": "Foo Corp",
+                           "regularMarketPrice": 42.10}
             self.assertTrue(_ticker_exists("FOO"))
 
     def test_returns_false_for_nothing(self):
@@ -175,6 +180,31 @@ class TickerExistsHelper(unittest.TestCase):
             mock_t.fast_info = {}
             mock_t.info = {}
             self.assertFalse(_ticker_exists("ZZZNOTREAL"))
+
+    def test_delisted_with_stale_metadata_returns_false(self):
+        """The CROC bug: Yahoo serves stale shortName/longName/quoteType
+        for years after a ticker is delisted, but stops serving
+        regularMarketPrice. The previous lenient check trusted the
+        metadata and routed CROC to "transient feed issue, retry"
+        instead of "we couldn't find that ticker."
+
+        This is the regression test that pins the fix."""
+        with patch.object(data_fetcher.yf, "Ticker") as mock_ticker_cls:
+            mock_t = mock_ticker_cls.return_value
+            # No live price anywhere — this is what a delisted ticker
+            # looks like through fast_info / info today.
+            mock_t.fast_info = {}
+            mock_t.info = {
+                "symbol": "CROC",
+                "shortName": "ProShares UltraShort Yen",  # stale name
+                "longName": "ProShares UltraShort Yen ETF",
+                "quoteType": "ETF",
+                # critically: no regularMarketPrice
+            }
+            self.assertFalse(
+                _ticker_exists("CROC"),
+                "delisted ticker with stale metadata must NOT be classified as alive",
+            )
 
 
 class NormaliseOhlcvShape(unittest.TestCase):
@@ -282,6 +312,85 @@ class StooqFallback(unittest.TestCase):
         self.assertIsNotNone(out)
         # 1y → 252 trading days × 1.5 = 378 row cap
         self.assertLessEqual(len(out), 378)
+
+
+class SuggestSimilarTickers(unittest.TestCase):
+    """The 'did you mean CROX?' helper. Powers the dynamic chip row
+    rendered in the ErrorPanel when the user types an unknown / delisted
+    ticker. Backed by Yahoo's search endpoint via yf.Search."""
+
+    def test_filters_to_equity_and_etf_only(self):
+        """Yahoo's search returns futures, FX, crypto, indexes etc.
+        Those rarely make for useful 'did you mean' chips when the
+        user typed a stock-like ticker."""
+        fake_search = MagicMock()
+        fake_search.quotes = [
+            {"symbol": "CROX", "quoteType": "EQUITY", "shortname": "Crocs, Inc."},
+            {"symbol": "CROCUSD=X", "quoteType": "CURRENCY"},
+            {"symbol": "CROCS", "quoteType": "EQUITY"},
+            {"symbol": "BTC-CROC", "quoteType": "CRYPTOCURRENCY"},
+            {"symbol": "CROCSUS.IDX", "quoteType": "INDEX"},
+        ]
+        with patch.object(data_fetcher.yf, "Search", return_value=fake_search):
+            out = _suggest_similar_tickers("CROC")
+        self.assertEqual(out, ["CROX", "CROCS"])
+
+    def test_skips_literal_input(self):
+        """If Yahoo's search ironically returns the same symbol the
+        user typed, drop it — chip-clicking it would just re-trigger
+        the same error."""
+        fake_search = MagicMock()
+        fake_search.quotes = [
+            {"symbol": "CROC", "quoteType": "EQUITY"},  # same as input
+            {"symbol": "CROX", "quoteType": "EQUITY"},
+        ]
+        with patch.object(data_fetcher.yf, "Search", return_value=fake_search):
+            out = _suggest_similar_tickers("CROC")
+        self.assertEqual(out, ["CROX"])
+
+    def test_returns_empty_on_search_failure(self):
+        """yf.Search may not exist on older yfinance, or may raise.
+        The helper must never propagate — empty list is a safe fallback
+        because the UI uses static suggestion chips when ours are empty."""
+        with patch.object(data_fetcher.yf, "Search",
+                          side_effect=Exception("Search not available")):
+            out = _suggest_similar_tickers("ANYTHING")
+        self.assertEqual(out, [])
+
+
+class TickerNotFoundCarriesSuggestions(unittest.TestCase):
+    """When fetch_stock_data raises TickerNotFoundError, it should
+    attach the suggestion list so the API layer can forward it to the
+    frontend's 'did you mean' chips."""
+
+    def test_classification_includes_suggestions(self):
+        empty = pd.DataFrame()
+        fake_search = MagicMock()
+        fake_search.quotes = [
+            {"symbol": "CROX", "quoteType": "EQUITY"},
+            {"symbol": "CRSR", "quoteType": "EQUITY"},
+        ]
+        with patch.object(data_fetcher.yf, "Ticker") as mock_ticker_cls, \
+             patch.object(data_fetcher.yf, "download", return_value=empty), \
+             patch.object(data_fetcher.yf, "Search", return_value=fake_search), \
+             patch.object(data_fetcher.time, "sleep"), \
+             patch("requests.get") as mock_get:
+            # All yfinance paths empty
+            mock_t = mock_ticker_cls.return_value
+            mock_t.history.return_value = empty
+            mock_t.fast_info = {}
+            mock_t.info = {}
+            # Stooq returns "No data" too
+            stooq_resp = MagicMock(); stooq_resp.status_code = 200
+            stooq_resp.text = "No data\n"
+            mock_get.return_value = stooq_resp
+
+            with self.assertRaises(TickerNotFoundError) as cm:
+                fetch_stock_data("CROC", period="2y")
+
+        # Suggestions piggybacked on the exception → API layer can
+        # forward them to the response body
+        self.assertEqual(cm.exception.suggestions, ["CROX", "CRSR"])
 
 
 class PeriodToTradingDays(unittest.TestCase):

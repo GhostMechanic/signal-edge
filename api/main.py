@@ -2498,10 +2498,14 @@ def predict_symbol(
         except TickerNotFoundError as e:
             # Yahoo doesn't recognise the symbol → real "check spelling"
             # case. Don't print a traceback; this isn't a backend bug.
+            # Forward Yahoo Search suggestions ('did you mean CROX?')
+            # so the UI can render dynamic chips instead of the same
+            # static fallback list every time.
             return {
                 "error": "ticker_not_found",
                 "symbol": sym,
                 "detail": str(e),
+                "suggestions": list(getattr(e, "suggestions", []) or []),
             }
         except TickerDataUnavailableError as e:
             # Symbol is valid, Yahoo's feed is just being flaky right
