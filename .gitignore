@@ -38,3 +38,5 @@ build/
 # Excel/Numbers lock files + backups
 ~$*.xlsx
 *.xlsx.bak
+DB password.rtf
+*.rtf
