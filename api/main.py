@@ -2538,6 +2538,76 @@ def predict_symbol(
                 "detail": f"{type(e).__name__}: {e}",
             }
 
+        # ── Contrarian haircut MUST run before log_prediction_v2 ────────
+        # Methodology § 4.3 contrarian guardrail. Compute horizon-adjusted
+        # divergence vs analyst consensus and apply the 0.85× confidence
+        # haircut when the model is strongly contrarian + directionally
+        # opposed. Critically: this has to mutate predictions[h]["confidence"]
+        # *before* log_prediction_v2 runs, otherwise saved Supabase rows
+        # carry the pre-haircut value while the live response carries
+        # the post-haircut value — same prediction, two different numbers
+        # depending on which page you look at. (This was a real bug from
+        # 2026-04-29 through 2026-04-30; receipt and live pages diverged
+        # silently on every contrarian call.)
+        consensus_target = None
+        try:
+            cached = _QUOTE_CACHE.get(sym)
+            if cached is not None:
+                payload_q, ts_q = cached
+                if (datetime.utcnow() - ts_q).total_seconds() < _QUOTE_TTL_SECONDS:
+                    consensus_target = payload_q.get("analyst_target_mean")
+            if consensus_target is None:
+                from data_fetcher import fetch_fundamentals as _fetch_fund
+                _fund = _fetch_fund(sym) or {}
+                consensus_target = _fund.get("target_mean")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[predict {sym}] consensus target fetch failed: {exc}")
+            consensus_target = None
+
+        # Snapshot current_price for the consensus loop. The downstream
+        # block re-derives it from df, but the haircut needs it now.
+        try:
+            _current_price_snapshot = float(df["Close"].iloc[-1])
+        except Exception:
+            _current_price_snapshot = None
+
+        try:
+            from consensus_check import (
+                evaluate as _consensus_evaluate,
+                haircut_confidence as _consensus_haircut,
+            )
+            for h, hdata in predictions.items():
+                if not isinstance(hdata, dict) or hdata.get("skipped"):
+                    continue
+                horizon_days = HORIZON_DAYS.get(h)
+                if not horizon_days:
+                    continue
+                check = _consensus_evaluate(
+                    consensus_target_price=consensus_target,
+                    current_price=hdata.get("current_price") or _current_price_snapshot,
+                    predicted_price=hdata.get("predicted_price"),
+                    horizon_days=horizon_days,
+                )
+                hdata["consensus_check"] = {
+                    "has_consensus":             check.has_consensus,
+                    "horizon_days":              check.horizon_days,
+                    "consensus_implied_annual":  check.consensus_implied_annual,
+                    "consensus_implied_horizon": check.consensus_implied_horizon,
+                    "model_return_horizon":      check.model_return_horizon,
+                    "divergence_pp":             check.divergence_pp,
+                    "is_directionally_opposed":  check.is_directionally_opposed,
+                    "is_strong_contrarian":      check.is_strong_contrarian,
+                    "apply_haircut":             check.apply_haircut,
+                }
+                if check.apply_haircut:
+                    pre = hdata.get("confidence")
+                    if pre is not None:
+                        hdata["confidence_pre_haircut"] = pre
+                        hdata["confidence"] = _consensus_haircut(pre, check)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[predict {sym}] consensus check failed: {exc}")
+            traceback.print_exc()
+
         # Log this prediction to the official log so it counts toward Track
         # Record. Per anchor § 8.1, log_prediction_v2 dedupes on
         # (user_id, symbol, user_horizon_code, today_utc) — if this user
@@ -2717,76 +2787,10 @@ def predict_symbol(
         except Exception:
             current_price = None
 
-        # Contrarian guardrail (methodology § 4.3) — for each horizon,
-        # compute the horizon-adjusted divergence vs analyst consensus
-        # and apply the confidence haircut when the call is strong-
-        # contrarian AND directionally opposed. Stamps a `consensus_check`
-        # field on each horizon's dict so the frontend can render the
-        # "strong contrarian" badge with the right horizon-specific number.
-        # See consensus_check.py for the methodology constants.
-        consensus_target = None
-        try:
-            # Reuse the quote endpoint's cached fundamentals when fresh.
-            # _QUOTE_CACHE is keyed by symbol → (payload, ts), TTL 15min.
-            cached = _QUOTE_CACHE.get(sym)
-            if cached is not None:
-                payload_q, ts_q = cached
-                if (datetime.utcnow() - ts_q).total_seconds() < _QUOTE_TTL_SECONDS:
-                    consensus_target = payload_q.get("analyst_target_mean")
-            if consensus_target is None:
-                # Cache miss — fetch fundamentals once. Fast on yfinance's
-                # internal cache because the predict-time data fetch already
-                # warmed it. Failure here is non-fatal: the consensus check
-                # silently degrades to has_consensus=False per horizon.
-                from data_fetcher import fetch_fundamentals as _fetch_fund
-                _fund = _fetch_fund(sym) or {}
-                consensus_target = _fund.get("target_mean")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[predict {sym}] consensus target fetch failed: {exc}")
-            consensus_target = None
-
-        try:
-            from consensus_check import (
-                evaluate as _consensus_evaluate,
-                haircut_confidence as _consensus_haircut,
-            )
-            for h, hdata in predictions.items():
-                if not isinstance(hdata, dict) or hdata.get("skipped"):
-                    continue
-                horizon_days = HORIZON_DAYS.get(h)
-                if not horizon_days:
-                    continue
-                check = _consensus_evaluate(
-                    consensus_target_price=consensus_target,
-                    current_price=hdata.get("current_price") or current_price,
-                    predicted_price=hdata.get("predicted_price"),
-                    horizon_days=horizon_days,
-                )
-                # Stamp the full check dict on the horizon — UI uses
-                # divergence_pp + apply_haircut for the badge + label.
-                hdata["consensus_check"] = {
-                    "has_consensus":             check.has_consensus,
-                    "horizon_days":              check.horizon_days,
-                    "consensus_implied_annual":  check.consensus_implied_annual,
-                    "consensus_implied_horizon": check.consensus_implied_horizon,
-                    "model_return_horizon":      check.model_return_horizon,
-                    "divergence_pp":             check.divergence_pp,
-                    "is_directionally_opposed":  check.is_directionally_opposed,
-                    "is_strong_contrarian":      check.is_strong_contrarian,
-                    "apply_haircut":             check.apply_haircut,
-                }
-                # Apply haircut to per-horizon confidence when warranted.
-                # The pre-haircut value stays available so the UI can
-                # show "70.1% (haircut from contrarian rule)" for clarity.
-                if check.apply_haircut:
-                    pre = hdata.get("confidence")
-                    if pre is not None:
-                        hdata["confidence_pre_haircut"] = pre
-                        hdata["confidence"] = _consensus_haircut(pre, check)
-        except Exception as exc:  # noqa: BLE001
-            # Consensus check is informational; never let it break predict.
-            print(f"[predict {sym}] consensus check failed: {exc}")
-            traceback.print_exc()
+        # Contrarian guardrail moved to BEFORE log_prediction_v2 above —
+        # see the long comment up there. consensus_check has already
+        # stamped per-horizon `consensus_check` blocks AND applied any
+        # confidence haircut by the time we reach this point.
 
         today_change_pct = None
         try:
