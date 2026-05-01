@@ -35,6 +35,13 @@ build/
 .models/*.joblib
 .~lock.*#
 
+# Local-only prediction store (Supabase is the production source of truth).
+# These can carry user-specific data + scratch SQLite test artifacts.
+.predictions/
+retrain.log
+*.log
+retrain_status_*.md
+
 # Excel/Numbers lock files + backups
 ~$*.xlsx
 *.xlsx.bak

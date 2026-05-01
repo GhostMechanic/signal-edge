@@ -1,0 +1,42 @@
+# Fly.io deployment config for the Prediqt API.
+# Deploy with: fly launch (first time) / fly deploy (subsequent).
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "prediqt-api"           # rename before first launch
+primary_region = "iad"         # US east — close to most Vercel edges
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+  PYTHONUNBUFFERED = "1"
+  # Allow extra CORS origins (custom domains, staging, etc.).
+  # CORS_EXTRA_ORIGINS = "https://prediqt.com,https://staging.prediqt.com"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  # Single machine is plenty for a cached read-heavy API.
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    protocol = "http"
+    timeout = "10s"
+
+# Predictions log + target-hit cache live on disk. 1 GB is overkill for now
+# but costs pennies and saves us a migration later.
+[[mounts]]
+  source = "prediqt_data"
+  destination = "/app/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
