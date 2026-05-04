@@ -314,10 +314,29 @@ def log_prediction_v2(
         from db import insert_prediction as _db_insert_prediction
         persisted_id = _db_insert_prediction(record, user_id=user_id) or pred_id
     except Exception as e:
-        # If db.insert_prediction fails (e.g. Supabase offline), fall back
-        # to the legacy SQLite store directly so we don't lose the data.
-        logger.exception("db.insert_prediction failed; falling back to "
-                         "prediction_store: %s", e)
+        # When USE_SUPABASE=true and the Supabase write fails, falling
+        # back to the legacy SQLite store is a correctness hazard — the
+        # prediction lands somewhere the rest of the app (ledger, model
+        # paper trades, scoring worker) can't see. Better to fail loudly
+        # so the caller can surface a clear error to the user and they
+        # can retry, than to silently produce a phantom row.
+        try:
+            from db import USE_SUPABASE as _USE_SUPABASE
+        except Exception:
+            _USE_SUPABASE = False
+        if _USE_SUPABASE:
+            logger.exception(
+                "db.insert_prediction FAILED in Supabase mode for %s; "
+                "refusing legacy SQLite fallback to keep ledger/portfolio "
+                "in sync. Surfacing the failure to the caller.", symbol
+            )
+            return ""
+        # Legacy / dev mode (USE_SUPABASE=false): SQLite IS the canonical
+        # store, so fall back as before.
+        logger.exception(
+            "db.insert_prediction failed in legacy mode; falling back to "
+            "prediction_store: %s", e
+        )
         try:
             prediction_store.insert_prediction(record)
             persisted_id = pred_id

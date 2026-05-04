@@ -197,7 +197,7 @@ def _verify_supabase_jwt(token: str) -> dict:
     return payload
 
 
-def get_current_user(
+async def get_current_user(
     request: Request,
     creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> CurrentUser:
@@ -209,6 +209,28 @@ def get_current_user(
       1. Authorization: Bearer <jwt> → verify, return CurrentUser.
       2. ALLOW_DEV_USER_FALLBACK + DEV_USER_ID → return that user.
       3. Otherwise → 401.
+
+    Why this is `async`. ContextVar mutations made inside a sync
+    FastAPI dependency run via run_in_threadpool — that wraps the call
+    in `context.run()`, which copies the current async context for the
+    worker thread. Mutations applied inside the worker stay on that
+    copy and are NOT visible to subsequent run_in_threadpool calls
+    (e.g. the endpoint itself). Result: set_request_user(...) was a
+    no-op from the request's perspective, every db helper saw
+    ContextVar default None, and downstream code raised "No user_id
+    available" mid-request.
+
+    Async dependencies run in the request's primary async task. The
+    same task then schedules the endpoint via run_in_threadpool, which
+    copies the task's now-mutated context into the worker. ContextVar
+    reads inside the endpoint resolve correctly.
+
+    Trade-off: _verify_supabase_jwt makes a (cached) sync HTTP call to
+    fetch JWKS on first use. Calling that inline from an async function
+    briefly blocks the event loop. Acceptable for now — the call is
+    rare (PyJWKClient caches keys ~5 min) and fast (<100ms warm). If
+    we ever push the API to high QPS we can move JWKS fetches to
+    httpx async.
     """
     from db import set_request_user
 
@@ -248,7 +270,7 @@ def get_current_user(
     )
 
 
-def get_optional_user(
+async def get_optional_user(
     request: Request,
     creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> Optional[CurrentUser]:
@@ -259,6 +281,9 @@ def get_optional_user(
 
     Returns None when there's no valid session — endpoint then renders
     the public-tier view.
+
+    See get_current_user docstring for why this is `async` (ContextVar
+    propagation through FastAPI's threadpool dispatcher).
     """
     from db import set_request_user
 
@@ -294,7 +319,7 @@ def get_optional_user(
     return None
 
 
-def require_verified_email(cu: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+async def require_verified_email(cu: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     """
     Stricter wrapper for endpoints that produce public-ledger artifacts
     (predict). The public ledger is forever; we don't accept entries

@@ -438,19 +438,35 @@ def user_paper_portfolio(
     # Auto-settle any expired option trades before reading the book.
     # Per Phase B design: options resolve at expiry only, no manual close.
     # Settlement is idempotent and runs in O(open_options) — cheap.
+    # Pass cu.id explicitly so this works even if the ContextVar isn't
+    # propagating cleanly (defensive — the auth dep is now async, so
+    # the var should be set, but we don't want a fatal traceback if
+    # somehow it isn't).
     try:
         from db import settle_expired_option_trades
-        settled = settle_expired_option_trades()
+        settled = settle_expired_option_trades(user_id=cu.id)
         if settled > 0:
             print(f"[paper-portfolio] auto-settled {settled} expired option trade(s)")
+    except TypeError:
+        # Older signature without user_id kwarg — fall through.
+        try:
+            from db import settle_expired_option_trades as _ssot
+            settled = _ssot()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[paper-portfolio] settle_expired_option_trades failed (non-fatal): {exc}")
     except Exception as exc:  # noqa: BLE001
         print(f"[paper-portfolio] settle_expired_option_trades failed (non-fatal): {exc}")
 
     try:
         from db import get_user_paper_portfolio
-        book = get_user_paper_portfolio()
+        book = get_user_paper_portfolio(user_id=cu.id)
     except NotImplementedError as exc:
         return _supabase_unavailable_response(str(exc))
+    except TypeError:
+        # Backward compat — if get_user_paper_portfolio doesn't take a
+        # user_id kwarg yet, fall through to the ContextVar path.
+        from db import get_user_paper_portfolio as _gupp
+        book = _gupp()
 
     # Enrich each open trade with a live current price + unrealised P&L.
     # We do this in the API layer (not db.py) because db.py is the
@@ -2643,7 +2659,13 @@ def predict_symbol(
             for h, hdata in predictions.items():
                 if not isinstance(hdata, dict) or hdata.get("skipped"):
                     continue
-                horizon_days = HORIZON_DAYS.get(h)
+                # Use the module-level _HORIZON_DAYS constant. The local
+                # `HORIZON_DAYS = {...}` assignment further down in this
+                # function shadowed the (then non-existent) global lookup
+                # here as a local-not-yet-assigned read, raising
+                # UnboundLocalError. Routing both reads through the
+                # module constant fixes the scope hazard.
+                horizon_days = _HORIZON_DAYS.get(h)
                 if not horizon_days:
                     continue
                 check = _consensus_evaluate(
@@ -2826,18 +2848,17 @@ def predict_symbol(
 
         # Stamp each horizon with its expiration date (today + N days) and
         # attach the top-3 selected features so the UI can show drivers.
-        HORIZON_DAYS = {
-            "3 Day": 3, "1 Week": 7, "1 Month": 30,
-            "1 Quarter": 90, "1 Year": 365,
-        }
+        # Uses the module-level _HORIZON_DAYS constant — used to redefine
+        # locally here, which shadowed the same name elsewhere in this
+        # function and caused UnboundLocalError in the consensus check.
         today_utc = datetime.utcnow().date()
         selected = getattr(predictor, "selected_feats", {}) or {}
         for h, hdata in predictions.items():
             if not isinstance(hdata, dict):
                 continue
-            if h in HORIZON_DAYS:
+            if h in _HORIZON_DAYS:
                 hdata["horizon_end"] = (
-                    today_utc + timedelta(days=HORIZON_DAYS[h])
+                    today_utc + timedelta(days=_HORIZON_DAYS[h])
                 ).isoformat()
             # Top features for this horizon — sourced from selected_feats which
             # is SHAP-ranked at training time. Trimmed to 3 for compact UI.
