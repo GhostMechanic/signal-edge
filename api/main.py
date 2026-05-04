@@ -627,6 +627,12 @@ def open_user_paper_trade_endpoint(
         # is the Supabase boundary, not the market-data boundary.
         from db import _client, USE_SUPABASE
         fill_price: Optional[float] = None
+        # Track WHY we don't have a fill price so the user gets a useful
+        # error. The two failure modes — prediction not found vs market
+        # data feed failed — call for different fixes (frontend/auth bug
+        # vs transient retry), so we don't want to collapse them under
+        # one misleading message.
+        lookup_failed = False
         if USE_SUPABASE:
             try:
                 pred = (
@@ -639,14 +645,33 @@ def open_user_paper_trade_endpoint(
                 sym = (pred.get("symbol") or "").upper().strip()
                 if sym:
                     fill_price = _resolve_current_price(sym)
+                else:
+                    # .single() returned data but no symbol — rare; treat
+                    # as a lookup miss so the user sees the right message.
+                    lookup_failed = True
             except Exception as exc:  # noqa: BLE001
+                # PGRST116 fires when .single() finds 0 or >1 rows. Both
+                # are "API can't resolve this prediction" from the user's
+                # perspective; surface that, not a fake market-data error.
+                lookup_failed = True
                 print(f"[paper-trade] symbol lookup failed for {prediction_id}: {exc}")
+
+        if lookup_failed:
+            return {
+                "ok": False,
+                "error": (
+                    "couldn't find that prediction. it may not have been "
+                    "saved, or it belongs to a different account. try "
+                    "asking again, then take the play from the fresh "
+                    "receipt."
+                ),
+            }
         if fill_price is None:
             return {
                 "ok": False,
                 "error": (
                     "couldn't pull current market price for this ticker. "
-                    "Try again in a moment — the market data feed may be "
+                    "try again in a moment — the market data feed may be "
                     "stale."
                 ),
             }
@@ -2459,10 +2484,41 @@ def predict_symbol(
                 "detail": f"{type(e).__name__}: {e}",
             }
         if not loaded:
+            # load_model() distinguishes WHY it failed via
+            # predictor.load_failure_reason. We translate "stale weights
+            # need a retrain" cases into the same `model_not_found`
+            # response shape that the frontend already handles — that
+            # auto-dispatches training and shows the progress UI without
+            # a separate code path. The hint string is observability-only
+            # (Render logs, debug tooling) so the backend stays honest
+            # about what happened.
+            reason = getattr(predictor, "load_failure_reason", None)
+            if reason in ("training_version_mismatch", "stale", "corrupted"):
+                # Kick the retrain off proactively so by the time the
+                # frontend's TrainingState mounts and polls /api/train-status,
+                # the worker is already running. _dispatch_auto_retrain is
+                # idempotent — if start_training() fires a moment later,
+                # it'll see the existing job and no-op.
+                _dispatch_auto_retrain(sym, reason)
+                return {
+                    "error": "model_not_found",
+                    "symbol": sym,
+                    "hint": (
+                        f"Model on disk needs to be retrained ({reason}). "
+                        "Auto-training dispatched."
+                    ),
+                }
+            # file_missing or any other unhandled reason — surface the
+            # original error so the upstream existence-check or future
+            # diagnostics still trip cleanly.
             return {
                 "error": "model_load_failed",
                 "symbol": sym,
-                "hint": "Model file exists but couldn't be hydrated. Check the meta JSON or retrain.",
+                "hint": (
+                    f"Model file exists but couldn't be hydrated "
+                    f"(reason={reason or 'unknown'}). Check the meta JSON "
+                    "or retrain."
+                ),
             }
 
         # ── Auto-retrain detector ──────────────────────────────────────

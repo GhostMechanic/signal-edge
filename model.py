@@ -483,10 +483,29 @@ class StockPredictor:
         """
         Load a previously trained model from disk.
         Returns True if a fresh-enough model was loaded, False otherwise.
+
+        On failure, sets ``self.load_failure_reason`` so callers can
+        distinguish the cases — most importantly:
+          • ``"file_missing"``               — no joblib/meta on disk;
+                                                caller should train fresh
+          • ``"training_version_mismatch"``  — model was saved against an
+                                                older TRAINING_VERSION;
+                                                caller should retrain to
+                                                upgrade
+          • ``"stale"``                      — model exceeded max_age_hours;
+                                                caller may serve and retrain
+          • ``"corrupted"``                  — meta/joblib failed to parse;
+                                                caller should retrain
+        On success, ``self.load_failure_reason`` is set to None.
         """
+        # Default to None at the start so a successful load leaves no
+        # leftover reason from a previous failed attempt on the same
+        # instance (rare, but defensive).
+        self.load_failure_reason: Optional[str] = None
         mp = self._model_path()
         meta_p = self._meta_path()
         if not os.path.exists(mp) or not os.path.exists(meta_p):
+            self.load_failure_reason = "file_missing"
             return False
 
         try:
@@ -495,11 +514,13 @@ class StockPredictor:
 
             # Invalidate cache if training logic has changed
             if meta.get("training_version", 0) != TRAINING_VERSION:
+                self.load_failure_reason = "training_version_mismatch"
                 return False  # incompatible training version
 
             trained_at = pd.Timestamp(meta["trained_at"])
             age_hours = (pd.Timestamp.now() - trained_at).total_seconds() / 3600
             if age_hours > max_age_hours:
+                self.load_failure_reason = "stale"
                 return False  # model is stale
 
             model_data = joblib.load(mp)
@@ -523,6 +544,7 @@ class StockPredictor:
             self.is_trained      = True
             return True
         except Exception:
+            self.load_failure_reason = "corrupted"
             return False
 
     # ── Feature preparation ──────────────────────────────────────────────────
