@@ -684,5 +684,2051 @@
         }
       }
     }
+  },
+  {
+    "timestamp": "2026-05-02T13:18:32.444866",
+    "should_retrain": false,
+    "reason": "169 predictions until next retrain",
+    "metrics": {
+      "current_version": "4.0",
+      "version_history": [
+        {
+          "version": "2.0",
+          "timestamp": "2026-04-21T13:20:59.451573",
+          "accuracy_before": 69.6,
+          "accuracy_after": 74.6,
+          "scored_predictions": 159,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 5.3056,
+              "autocorr_1d": 3.3147,
+              "var_ratio_21d": 3.2625,
+              "sent_yield_curve_spread": 2.9692,
+              "spy_ma200_ratio": 2.6174
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0158,
+              "ma10_ratio": -0.0164,
+              "sent_vix_momentum_5d": -0.0191,
+              "ret_10d": -0.0204,
+              "macd_hist": -0.0312
+            },
+            "confidence_bias_correction": -1.98,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": 0,
+              "1 Quarter": 0,
+              "1 Year": -0.18599999999999994,
+              "3 Day": 0.16700000000000004
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 159,
+              "overall_accuracy": 64.8,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 66.7,
+                  "avg_confidence": 57.4,
+                  "calibration_error": 9.300000000000004,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 52.8,
+                  "avg_confidence": 67.6,
+                  "calibration_error": 14.799999999999997,
+                  "recommendation": "Well-calibrated for 1 Month"
+                },
+                "1 Quarter": {
+                  "accuracy": 63.9,
+                  "avg_confidence": 73.5,
+                  "calibration_error": 9.600000000000001,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 60.0,
+                  "avg_confidence": 78.6,
+                  "calibration_error": 18.599999999999994,
+                  "recommendation": "Overconfident: reduce 1 Year confidence by ~19%"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 57.0,
+                  "calibration_error": 16.700000000000003,
+                  "recommendation": "Underconfident: boost 3 Day confidence by ~17%"
+                }
+              },
+              "confidence_calibration_error": 10.6,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 62.5,
+                  "total": 24,
+                  "scored": 24
+                },
+                "Bull": {
+                  "accuracy": 69.7,
+                  "total": 119,
+                  "scored": 99
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 20,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 5.3056,
+                    "accuracy_when_top": 78.7,
+                    "appearances": 1062,
+                    "correct": 836,
+                    "wrong": 226
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 3.3147,
+                    "accuracy_when_top": 76.3,
+                    "appearances": 772,
+                    "correct": 589,
+                    "wrong": 183
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 3.2625,
+                    "accuracy_when_top": 75.8,
+                    "appearances": 751,
+                    "correct": 569,
+                    "wrong": 182
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 2.9692,
+                    "accuracy_when_top": 66.9,
+                    "appearances": 532,
+                    "correct": 356,
+                    "wrong": 176
+                  },
+                  {
+                    "feature": "spy_ma200_ratio",
+                    "cumulative_score": 2.6174,
+                    "accuracy_when_top": 69.2,
+                    "appearances": 808,
+                    "correct": 559,
+                    "wrong": 249
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "stoch_d",
+                    "cumulative_score": -0.0158,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0164,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0191,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0204,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 9,
+                    "correct": 0,
+                    "wrong": 9
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0312,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 18,
+                    "correct": 0,
+                    "wrong": 18
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -2.0%. Reduce confidence scores by ~2%.",
+                "Strong Unknown accuracy (62.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (69.7%). Model works well in Bull markets.",
+                "Consider dropping feature 'stoch_d' (negative score: -0.016)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.016)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.019)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.020)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.031)",
+                "Model ready for retraining. 20+ new scored predictions since last update."
+              ]
+            }
+          }
+        },
+        {
+          "version": "3.0",
+          "timestamp": "2026-04-21T21:37:17.644908",
+          "accuracy_before": 70.2,
+          "accuracy_after": 75.2,
+          "scored_predictions": 169,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 6.7137,
+              "autocorr_1d": 4.1869,
+              "var_ratio_21d": 3.9179,
+              "sent_yield_curve_spread": 3.7445,
+              "spy_ma200_ratio": 2.6174,
+              "ma50_200_xover": 3.225
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0211,
+              "ma10_ratio": -0.0218,
+              "sent_vix_momentum_5d": -0.0255,
+              "ret_10d": -0.0295,
+              "macd_hist": -0.0394
+            },
+            "confidence_bias_correction": -3.78,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": 0,
+              "1 Quarter": 0,
+              "1 Year": -0.18,
+              "3 Day": 0
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 169,
+              "overall_accuracy": 61.5,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 67.9,
+                  "avg_confidence": 58.5,
+                  "calibration_error": 9.400000000000006,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 52.6,
+                  "avg_confidence": 67.3,
+                  "calibration_error": 14.699999999999996,
+                  "recommendation": "Well-calibrated for 1 Month"
+                },
+                "1 Quarter": {
+                  "accuracy": 60.5,
+                  "avg_confidence": 73.0,
+                  "calibration_error": 12.5,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 56.2,
+                  "avg_confidence": 74.2,
+                  "calibration_error": 18.0,
+                  "recommendation": "Overconfident: reduce 1 Year confidence by ~18%"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 61.8,
+                  "calibration_error": 11.900000000000006,
+                  "recommendation": "Well-calibrated for 3 Day"
+                }
+              },
+              "confidence_calibration_error": 11.3,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 62.5,
+                  "total": 24,
+                  "scored": 24
+                },
+                "Bull": {
+                  "accuracy": 64.2,
+                  "total": 139,
+                  "scored": 109
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 25,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 6.7137,
+                    "accuracy_when_top": 77.9,
+                    "appearances": 1362,
+                    "correct": 1061,
+                    "wrong": 301
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 4.1869,
+                    "accuracy_when_top": 74.7,
+                    "appearances": 1010,
+                    "correct": 754,
+                    "wrong": 256
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 3.9179,
+                    "accuracy_when_top": 73.7,
+                    "appearances": 952,
+                    "correct": 702,
+                    "wrong": 250
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 3.7445,
+                    "accuracy_when_top": 66.2,
+                    "appearances": 665,
+                    "correct": 440,
+                    "wrong": 225
+                  },
+                  {
+                    "feature": "ma50_200_xover",
+                    "cumulative_score": 3.225,
+                    "accuracy_when_top": 74.2,
+                    "appearances": 934,
+                    "correct": 693,
+                    "wrong": 241
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "stoch_d",
+                    "cumulative_score": -0.0211,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0218,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0255,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0295,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 13,
+                    "correct": 0,
+                    "wrong": 13
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0394,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 23,
+                    "correct": 0,
+                    "wrong": 23
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -3.8%. Reduce confidence scores by ~4%.",
+                "Strong Unknown accuracy (62.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (64.2%). Model works well in Bull markets.",
+                "Consider dropping feature 'stoch_d' (negative score: -0.021)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.022)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.025)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.029)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.039)"
+              ]
+            }
+          }
+        },
+        {
+          "version": "4.0",
+          "timestamp": "2026-04-22T11:57:50.398176",
+          "accuracy_before": 66.0,
+          "accuracy_after": 71.0,
+          "scored_predictions": 174,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 9.762,
+              "autocorr_1d": 6.0396,
+              "var_ratio_21d": 5.1921,
+              "sent_yield_curve_spread": 5.0384,
+              "spy_ma200_ratio": 2.6174,
+              "ma50_200_xover": 3.225,
+              "pos_52w_high": 4.6968
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0211,
+              "ma10_ratio": -0.0341,
+              "sent_vix_momentum_5d": -0.0399,
+              "ret_10d": -0.0499,
+              "macd_hist": -0.0748,
+              "quarter": -0.0336
+            },
+            "confidence_bias_correction": -5.02,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": -0.155,
+              "1 Quarter": 0,
+              "1 Year": 0,
+              "3 Day": 0
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 174,
+              "overall_accuracy": 59.8,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 61.3,
+                  "avg_confidence": 58.9,
+                  "calibration_error": 2.3999999999999986,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 51.3,
+                  "avg_confidence": 66.8,
+                  "calibration_error": 15.5,
+                  "recommendation": "Overconfident: reduce 1 Month confidence by ~16%"
+                },
+                "1 Quarter": {
+                  "accuracy": 61.5,
+                  "avg_confidence": 71.7,
+                  "calibration_error": 10.200000000000003,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 57.6,
+                  "avg_confidence": 71.5,
+                  "calibration_error": 13.899999999999999,
+                  "recommendation": "Well-calibrated for 1 Year"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 63.4,
+                  "calibration_error": 10.300000000000004,
+                  "recommendation": "Well-calibrated for 3 Day"
+                }
+              },
+              "confidence_calibration_error": 12.7,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 65.5,
+                  "total": 29,
+                  "scored": 29
+                },
+                "Bull": {
+                  "accuracy": 60.6,
+                  "total": 159,
+                  "scored": 109
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 25,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 9.762,
+                    "accuracy_when_top": 75.7,
+                    "appearances": 2064,
+                    "correct": 1562,
+                    "wrong": 502
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 6.0396,
+                    "accuracy_when_top": 70.9,
+                    "appearances": 1586,
+                    "correct": 1124,
+                    "wrong": 462
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 5.1921,
+                    "accuracy_when_top": 69.3,
+                    "appearances": 1438,
+                    "correct": 996,
+                    "wrong": 442
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 5.0384,
+                    "accuracy_when_top": 61.8,
+                    "appearances": 998,
+                    "correct": 617,
+                    "wrong": 381
+                  },
+                  {
+                    "feature": "pos_52w_high",
+                    "cumulative_score": 4.6968,
+                    "accuracy_when_top": 68.1,
+                    "appearances": 1561,
+                    "correct": 1063,
+                    "wrong": 498
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "quarter",
+                    "cumulative_score": -0.0336,
+                    "accuracy_when_top": 37.6,
+                    "appearances": 213,
+                    "correct": 80,
+                    "wrong": 133
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0341,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 25,
+                    "correct": 0,
+                    "wrong": 25
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0399,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 25,
+                    "correct": 0,
+                    "wrong": 25
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0499,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 22,
+                    "correct": 0,
+                    "wrong": 22
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0748,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 41,
+                    "correct": 0,
+                    "wrong": 41
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -5.0%. Reduce confidence scores by ~5%.",
+                "Strong Unknown accuracy (65.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (60.6%). Model works well in Bull markets.",
+                "Consider dropping feature 'quarter' (negative score: -0.034)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.034)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.040)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.050)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.075)"
+              ]
+            }
+          }
+        }
+      ],
+      "retrain_count": 3,
+      "accuracy_metrics": {
+        "current_live_accuracy": 64.0,
+        "current_quick_accuracy": 0.0,
+        "trend": "improving (+26.0%)"
+      },
+      "feature_learning": {
+        "top_features": [
+          {
+            "feature": "vol_63d",
+            "cumulative_score": 25.0588,
+            "accuracy_when_top": 66.4,
+            "appearances": 7180,
+            "correct": 4770,
+            "wrong": 2410
+          },
+          {
+            "feature": "sent_yield_curve_spread",
+            "cumulative_score": 19.8269,
+            "accuracy_when_top": 57.4,
+            "appearances": 5886,
+            "correct": 3381,
+            "wrong": 2505
+          },
+          {
+            "feature": "pos_52w_high",
+            "cumulative_score": 14.4817,
+            "accuracy_when_top": 61.2,
+            "appearances": 6568,
+            "correct": 4022,
+            "wrong": 2546
+          },
+          {
+            "feature": "autocorr_1d",
+            "cumulative_score": 14.2689,
+            "accuracy_when_top": 62.6,
+            "appearances": 5080,
+            "correct": 3181,
+            "wrong": 1899
+          },
+          {
+            "feature": "sent_treasury_10y_level",
+            "cumulative_score": 13.6278,
+            "accuracy_when_top": 55.5,
+            "appearances": 4932,
+            "correct": 2737,
+            "wrong": 2195
+          }
+        ],
+        "features_analyzed": 102
+      },
+      "next_retrain": {
+        "should_retrain": false,
+        "reason": "169 predictions until next retrain",
+        "expected_improvement": "10.0%"
+      },
+      "per_horizon_improvement": {
+        "1 Week": {
+          "accuracy": 64.0,
+          "confidence": 57.6,
+          "calibration_error": 6.399999999999999
+        },
+        "1 Month": {
+          "accuracy": 0,
+          "confidence": 65.2,
+          "calibration_error": 65.2
+        },
+        "1 Quarter": {
+          "accuracy": 0,
+          "confidence": 72.0,
+          "calibration_error": 72.0
+        },
+        "1 Year": {
+          "accuracy": 0,
+          "confidence": 72.2,
+          "calibration_error": 72.2
+        },
+        "3 Day": {
+          "accuracy": 0,
+          "confidence": 60.9,
+          "calibration_error": 60.9
+        }
+      },
+      "regime_learning": {
+        "Sideways": {
+          "accuracy": 60.0,
+          "sample_size": 15
+        },
+        "Bull": {
+          "accuracy": 70.0,
+          "sample_size": 10
+        },
+        "Bear": {
+          "accuracy": 0,
+          "sample_size": 0
+        }
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-03T13:57:33.457384",
+    "should_retrain": false,
+    "reason": "169 predictions until next retrain",
+    "metrics": {
+      "current_version": "4.0",
+      "version_history": [
+        {
+          "version": "2.0",
+          "timestamp": "2026-04-21T13:20:59.451573",
+          "accuracy_before": 69.6,
+          "accuracy_after": 74.6,
+          "scored_predictions": 159,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 5.3056,
+              "autocorr_1d": 3.3147,
+              "var_ratio_21d": 3.2625,
+              "sent_yield_curve_spread": 2.9692,
+              "spy_ma200_ratio": 2.6174
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0158,
+              "ma10_ratio": -0.0164,
+              "sent_vix_momentum_5d": -0.0191,
+              "ret_10d": -0.0204,
+              "macd_hist": -0.0312
+            },
+            "confidence_bias_correction": -1.98,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": 0,
+              "1 Quarter": 0,
+              "1 Year": -0.18599999999999994,
+              "3 Day": 0.16700000000000004
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 159,
+              "overall_accuracy": 64.8,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 66.7,
+                  "avg_confidence": 57.4,
+                  "calibration_error": 9.300000000000004,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 52.8,
+                  "avg_confidence": 67.6,
+                  "calibration_error": 14.799999999999997,
+                  "recommendation": "Well-calibrated for 1 Month"
+                },
+                "1 Quarter": {
+                  "accuracy": 63.9,
+                  "avg_confidence": 73.5,
+                  "calibration_error": 9.600000000000001,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 60.0,
+                  "avg_confidence": 78.6,
+                  "calibration_error": 18.599999999999994,
+                  "recommendation": "Overconfident: reduce 1 Year confidence by ~19%"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 57.0,
+                  "calibration_error": 16.700000000000003,
+                  "recommendation": "Underconfident: boost 3 Day confidence by ~17%"
+                }
+              },
+              "confidence_calibration_error": 10.6,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 62.5,
+                  "total": 24,
+                  "scored": 24
+                },
+                "Bull": {
+                  "accuracy": 69.7,
+                  "total": 119,
+                  "scored": 99
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 20,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 5.3056,
+                    "accuracy_when_top": 78.7,
+                    "appearances": 1062,
+                    "correct": 836,
+                    "wrong": 226
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 3.3147,
+                    "accuracy_when_top": 76.3,
+                    "appearances": 772,
+                    "correct": 589,
+                    "wrong": 183
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 3.2625,
+                    "accuracy_when_top": 75.8,
+                    "appearances": 751,
+                    "correct": 569,
+                    "wrong": 182
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 2.9692,
+                    "accuracy_when_top": 66.9,
+                    "appearances": 532,
+                    "correct": 356,
+                    "wrong": 176
+                  },
+                  {
+                    "feature": "spy_ma200_ratio",
+                    "cumulative_score": 2.6174,
+                    "accuracy_when_top": 69.2,
+                    "appearances": 808,
+                    "correct": 559,
+                    "wrong": 249
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "stoch_d",
+                    "cumulative_score": -0.0158,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0164,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0191,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0204,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 9,
+                    "correct": 0,
+                    "wrong": 9
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0312,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 18,
+                    "correct": 0,
+                    "wrong": 18
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -2.0%. Reduce confidence scores by ~2%.",
+                "Strong Unknown accuracy (62.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (69.7%). Model works well in Bull markets.",
+                "Consider dropping feature 'stoch_d' (negative score: -0.016)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.016)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.019)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.020)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.031)",
+                "Model ready for retraining. 20+ new scored predictions since last update."
+              ]
+            }
+          }
+        },
+        {
+          "version": "3.0",
+          "timestamp": "2026-04-21T21:37:17.644908",
+          "accuracy_before": 70.2,
+          "accuracy_after": 75.2,
+          "scored_predictions": 169,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 6.7137,
+              "autocorr_1d": 4.1869,
+              "var_ratio_21d": 3.9179,
+              "sent_yield_curve_spread": 3.7445,
+              "spy_ma200_ratio": 2.6174,
+              "ma50_200_xover": 3.225
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0211,
+              "ma10_ratio": -0.0218,
+              "sent_vix_momentum_5d": -0.0255,
+              "ret_10d": -0.0295,
+              "macd_hist": -0.0394
+            },
+            "confidence_bias_correction": -3.78,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": 0,
+              "1 Quarter": 0,
+              "1 Year": -0.18,
+              "3 Day": 0
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 169,
+              "overall_accuracy": 61.5,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 67.9,
+                  "avg_confidence": 58.5,
+                  "calibration_error": 9.400000000000006,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 52.6,
+                  "avg_confidence": 67.3,
+                  "calibration_error": 14.699999999999996,
+                  "recommendation": "Well-calibrated for 1 Month"
+                },
+                "1 Quarter": {
+                  "accuracy": 60.5,
+                  "avg_confidence": 73.0,
+                  "calibration_error": 12.5,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 56.2,
+                  "avg_confidence": 74.2,
+                  "calibration_error": 18.0,
+                  "recommendation": "Overconfident: reduce 1 Year confidence by ~18%"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 61.8,
+                  "calibration_error": 11.900000000000006,
+                  "recommendation": "Well-calibrated for 3 Day"
+                }
+              },
+              "confidence_calibration_error": 11.3,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 62.5,
+                  "total": 24,
+                  "scored": 24
+                },
+                "Bull": {
+                  "accuracy": 64.2,
+                  "total": 139,
+                  "scored": 109
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 25,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 6.7137,
+                    "accuracy_when_top": 77.9,
+                    "appearances": 1362,
+                    "correct": 1061,
+                    "wrong": 301
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 4.1869,
+                    "accuracy_when_top": 74.7,
+                    "appearances": 1010,
+                    "correct": 754,
+                    "wrong": 256
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 3.9179,
+                    "accuracy_when_top": 73.7,
+                    "appearances": 952,
+                    "correct": 702,
+                    "wrong": 250
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 3.7445,
+                    "accuracy_when_top": 66.2,
+                    "appearances": 665,
+                    "correct": 440,
+                    "wrong": 225
+                  },
+                  {
+                    "feature": "ma50_200_xover",
+                    "cumulative_score": 3.225,
+                    "accuracy_when_top": 74.2,
+                    "appearances": 934,
+                    "correct": 693,
+                    "wrong": 241
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "stoch_d",
+                    "cumulative_score": -0.0211,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0218,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0255,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0295,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 13,
+                    "correct": 0,
+                    "wrong": 13
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0394,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 23,
+                    "correct": 0,
+                    "wrong": 23
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -3.8%. Reduce confidence scores by ~4%.",
+                "Strong Unknown accuracy (62.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (64.2%). Model works well in Bull markets.",
+                "Consider dropping feature 'stoch_d' (negative score: -0.021)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.022)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.025)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.029)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.039)"
+              ]
+            }
+          }
+        },
+        {
+          "version": "4.0",
+          "timestamp": "2026-04-22T11:57:50.398176",
+          "accuracy_before": 66.0,
+          "accuracy_after": 71.0,
+          "scored_predictions": 174,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 9.762,
+              "autocorr_1d": 6.0396,
+              "var_ratio_21d": 5.1921,
+              "sent_yield_curve_spread": 5.0384,
+              "spy_ma200_ratio": 2.6174,
+              "ma50_200_xover": 3.225,
+              "pos_52w_high": 4.6968
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0211,
+              "ma10_ratio": -0.0341,
+              "sent_vix_momentum_5d": -0.0399,
+              "ret_10d": -0.0499,
+              "macd_hist": -0.0748,
+              "quarter": -0.0336
+            },
+            "confidence_bias_correction": -5.02,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": -0.155,
+              "1 Quarter": 0,
+              "1 Year": 0,
+              "3 Day": 0
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 174,
+              "overall_accuracy": 59.8,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 61.3,
+                  "avg_confidence": 58.9,
+                  "calibration_error": 2.3999999999999986,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 51.3,
+                  "avg_confidence": 66.8,
+                  "calibration_error": 15.5,
+                  "recommendation": "Overconfident: reduce 1 Month confidence by ~16%"
+                },
+                "1 Quarter": {
+                  "accuracy": 61.5,
+                  "avg_confidence": 71.7,
+                  "calibration_error": 10.200000000000003,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 57.6,
+                  "avg_confidence": 71.5,
+                  "calibration_error": 13.899999999999999,
+                  "recommendation": "Well-calibrated for 1 Year"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 63.4,
+                  "calibration_error": 10.300000000000004,
+                  "recommendation": "Well-calibrated for 3 Day"
+                }
+              },
+              "confidence_calibration_error": 12.7,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 65.5,
+                  "total": 29,
+                  "scored": 29
+                },
+                "Bull": {
+                  "accuracy": 60.6,
+                  "total": 159,
+                  "scored": 109
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 25,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 9.762,
+                    "accuracy_when_top": 75.7,
+                    "appearances": 2064,
+                    "correct": 1562,
+                    "wrong": 502
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 6.0396,
+                    "accuracy_when_top": 70.9,
+                    "appearances": 1586,
+                    "correct": 1124,
+                    "wrong": 462
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 5.1921,
+                    "accuracy_when_top": 69.3,
+                    "appearances": 1438,
+                    "correct": 996,
+                    "wrong": 442
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 5.0384,
+                    "accuracy_when_top": 61.8,
+                    "appearances": 998,
+                    "correct": 617,
+                    "wrong": 381
+                  },
+                  {
+                    "feature": "pos_52w_high",
+                    "cumulative_score": 4.6968,
+                    "accuracy_when_top": 68.1,
+                    "appearances": 1561,
+                    "correct": 1063,
+                    "wrong": 498
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "quarter",
+                    "cumulative_score": -0.0336,
+                    "accuracy_when_top": 37.6,
+                    "appearances": 213,
+                    "correct": 80,
+                    "wrong": 133
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0341,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 25,
+                    "correct": 0,
+                    "wrong": 25
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0399,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 25,
+                    "correct": 0,
+                    "wrong": 25
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0499,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 22,
+                    "correct": 0,
+                    "wrong": 22
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0748,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 41,
+                    "correct": 0,
+                    "wrong": 41
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -5.0%. Reduce confidence scores by ~5%.",
+                "Strong Unknown accuracy (65.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (60.6%). Model works well in Bull markets.",
+                "Consider dropping feature 'quarter' (negative score: -0.034)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.034)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.040)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.050)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.075)"
+              ]
+            }
+          }
+        }
+      ],
+      "retrain_count": 3,
+      "accuracy_metrics": {
+        "current_live_accuracy": 64.0,
+        "current_quick_accuracy": 0.0,
+        "trend": "improving (+26.0%)"
+      },
+      "feature_learning": {
+        "top_features": [
+          {
+            "feature": "vol_63d",
+            "cumulative_score": 25.0588,
+            "accuracy_when_top": 66.4,
+            "appearances": 7180,
+            "correct": 4770,
+            "wrong": 2410
+          },
+          {
+            "feature": "sent_yield_curve_spread",
+            "cumulative_score": 19.8269,
+            "accuracy_when_top": 57.4,
+            "appearances": 5886,
+            "correct": 3381,
+            "wrong": 2505
+          },
+          {
+            "feature": "pos_52w_high",
+            "cumulative_score": 14.4817,
+            "accuracy_when_top": 61.2,
+            "appearances": 6568,
+            "correct": 4022,
+            "wrong": 2546
+          },
+          {
+            "feature": "autocorr_1d",
+            "cumulative_score": 14.2689,
+            "accuracy_when_top": 62.6,
+            "appearances": 5080,
+            "correct": 3181,
+            "wrong": 1899
+          },
+          {
+            "feature": "sent_treasury_10y_level",
+            "cumulative_score": 13.6278,
+            "accuracy_when_top": 55.5,
+            "appearances": 4932,
+            "correct": 2737,
+            "wrong": 2195
+          }
+        ],
+        "features_analyzed": 102
+      },
+      "next_retrain": {
+        "should_retrain": false,
+        "reason": "169 predictions until next retrain",
+        "expected_improvement": "10.0%"
+      },
+      "per_horizon_improvement": {
+        "1 Week": {
+          "accuracy": 64.0,
+          "confidence": 57.6,
+          "calibration_error": 6.399999999999999
+        },
+        "1 Month": {
+          "accuracy": 0,
+          "confidence": 65.2,
+          "calibration_error": 65.2
+        },
+        "1 Quarter": {
+          "accuracy": 0,
+          "confidence": 72.0,
+          "calibration_error": 72.0
+        },
+        "1 Year": {
+          "accuracy": 0,
+          "confidence": 72.2,
+          "calibration_error": 72.2
+        },
+        "3 Day": {
+          "accuracy": 0,
+          "confidence": 60.9,
+          "calibration_error": 60.9
+        }
+      },
+      "regime_learning": {
+        "Sideways": {
+          "accuracy": 60.0,
+          "sample_size": 15
+        },
+        "Bull": {
+          "accuracy": 70.0,
+          "sample_size": 10
+        },
+        "Bear": {
+          "accuracy": 0,
+          "sample_size": 0
+        }
+      }
+    }
+  },
+  {
+    "timestamp": "2026-05-04T13:09:32.967701",
+    "should_retrain": false,
+    "reason": "169 predictions until next retrain",
+    "metrics": {
+      "current_version": "4.0",
+      "version_history": [
+        {
+          "version": "2.0",
+          "timestamp": "2026-04-21T13:20:59.451573",
+          "accuracy_before": 69.6,
+          "accuracy_after": 74.6,
+          "scored_predictions": 159,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 5.3056,
+              "autocorr_1d": 3.3147,
+              "var_ratio_21d": 3.2625,
+              "sent_yield_curve_spread": 2.9692,
+              "spy_ma200_ratio": 2.6174
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0158,
+              "ma10_ratio": -0.0164,
+              "sent_vix_momentum_5d": -0.0191,
+              "ret_10d": -0.0204,
+              "macd_hist": -0.0312
+            },
+            "confidence_bias_correction": -1.98,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": 0,
+              "1 Quarter": 0,
+              "1 Year": -0.18599999999999994,
+              "3 Day": 0.16700000000000004
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 159,
+              "overall_accuracy": 64.8,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 66.7,
+                  "avg_confidence": 57.4,
+                  "calibration_error": 9.300000000000004,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 52.8,
+                  "avg_confidence": 67.6,
+                  "calibration_error": 14.799999999999997,
+                  "recommendation": "Well-calibrated for 1 Month"
+                },
+                "1 Quarter": {
+                  "accuracy": 63.9,
+                  "avg_confidence": 73.5,
+                  "calibration_error": 9.600000000000001,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 60.0,
+                  "avg_confidence": 78.6,
+                  "calibration_error": 18.599999999999994,
+                  "recommendation": "Overconfident: reduce 1 Year confidence by ~19%"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 57.0,
+                  "calibration_error": 16.700000000000003,
+                  "recommendation": "Underconfident: boost 3 Day confidence by ~17%"
+                }
+              },
+              "confidence_calibration_error": 10.6,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 62.5,
+                  "total": 24,
+                  "scored": 24
+                },
+                "Bull": {
+                  "accuracy": 69.7,
+                  "total": 119,
+                  "scored": 99
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 20,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 5.3056,
+                    "accuracy_when_top": 78.7,
+                    "appearances": 1062,
+                    "correct": 836,
+                    "wrong": 226
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 3.3147,
+                    "accuracy_when_top": 76.3,
+                    "appearances": 772,
+                    "correct": 589,
+                    "wrong": 183
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 3.2625,
+                    "accuracy_when_top": 75.8,
+                    "appearances": 751,
+                    "correct": 569,
+                    "wrong": 182
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 2.9692,
+                    "accuracy_when_top": 66.9,
+                    "appearances": 532,
+                    "correct": 356,
+                    "wrong": 176
+                  },
+                  {
+                    "feature": "spy_ma200_ratio",
+                    "cumulative_score": 2.6174,
+                    "accuracy_when_top": 69.2,
+                    "appearances": 808,
+                    "correct": 559,
+                    "wrong": 249
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "stoch_d",
+                    "cumulative_score": -0.0158,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0164,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0191,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 12,
+                    "correct": 0,
+                    "wrong": 12
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0204,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 9,
+                    "correct": 0,
+                    "wrong": 9
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0312,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 18,
+                    "correct": 0,
+                    "wrong": 18
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -2.0%. Reduce confidence scores by ~2%.",
+                "Strong Unknown accuracy (62.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (69.7%). Model works well in Bull markets.",
+                "Consider dropping feature 'stoch_d' (negative score: -0.016)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.016)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.019)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.020)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.031)",
+                "Model ready for retraining. 20+ new scored predictions since last update."
+              ]
+            }
+          }
+        },
+        {
+          "version": "3.0",
+          "timestamp": "2026-04-21T21:37:17.644908",
+          "accuracy_before": 70.2,
+          "accuracy_after": 75.2,
+          "scored_predictions": 169,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 6.7137,
+              "autocorr_1d": 4.1869,
+              "var_ratio_21d": 3.9179,
+              "sent_yield_curve_spread": 3.7445,
+              "spy_ma200_ratio": 2.6174,
+              "ma50_200_xover": 3.225
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0211,
+              "ma10_ratio": -0.0218,
+              "sent_vix_momentum_5d": -0.0255,
+              "ret_10d": -0.0295,
+              "macd_hist": -0.0394
+            },
+            "confidence_bias_correction": -3.78,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": 0,
+              "1 Quarter": 0,
+              "1 Year": -0.18,
+              "3 Day": 0
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 169,
+              "overall_accuracy": 61.5,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 67.9,
+                  "avg_confidence": 58.5,
+                  "calibration_error": 9.400000000000006,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 52.6,
+                  "avg_confidence": 67.3,
+                  "calibration_error": 14.699999999999996,
+                  "recommendation": "Well-calibrated for 1 Month"
+                },
+                "1 Quarter": {
+                  "accuracy": 60.5,
+                  "avg_confidence": 73.0,
+                  "calibration_error": 12.5,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 56.2,
+                  "avg_confidence": 74.2,
+                  "calibration_error": 18.0,
+                  "recommendation": "Overconfident: reduce 1 Year confidence by ~18%"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 61.8,
+                  "calibration_error": 11.900000000000006,
+                  "recommendation": "Well-calibrated for 3 Day"
+                }
+              },
+              "confidence_calibration_error": 11.3,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 62.5,
+                  "total": 24,
+                  "scored": 24
+                },
+                "Bull": {
+                  "accuracy": 64.2,
+                  "total": 139,
+                  "scored": 109
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 25,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 6.7137,
+                    "accuracy_when_top": 77.9,
+                    "appearances": 1362,
+                    "correct": 1061,
+                    "wrong": 301
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 4.1869,
+                    "accuracy_when_top": 74.7,
+                    "appearances": 1010,
+                    "correct": 754,
+                    "wrong": 256
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 3.9179,
+                    "accuracy_when_top": 73.7,
+                    "appearances": 952,
+                    "correct": 702,
+                    "wrong": 250
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 3.7445,
+                    "accuracy_when_top": 66.2,
+                    "appearances": 665,
+                    "correct": 440,
+                    "wrong": 225
+                  },
+                  {
+                    "feature": "ma50_200_xover",
+                    "cumulative_score": 3.225,
+                    "accuracy_when_top": 74.2,
+                    "appearances": 934,
+                    "correct": 693,
+                    "wrong": 241
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "stoch_d",
+                    "cumulative_score": -0.0211,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0218,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0255,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 16,
+                    "correct": 0,
+                    "wrong": 16
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0295,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 13,
+                    "correct": 0,
+                    "wrong": 13
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0394,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 23,
+                    "correct": 0,
+                    "wrong": 23
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -3.8%. Reduce confidence scores by ~4%.",
+                "Strong Unknown accuracy (62.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (64.2%). Model works well in Bull markets.",
+                "Consider dropping feature 'stoch_d' (negative score: -0.021)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.022)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.025)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.029)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.039)"
+              ]
+            }
+          }
+        },
+        {
+          "version": "4.0",
+          "timestamp": "2026-04-22T11:57:50.398176",
+          "accuracy_before": 66.0,
+          "accuracy_after": 71.0,
+          "scored_predictions": 174,
+          "changes": {
+            "feature_boosts": {
+              "vol_63d": 9.762,
+              "autocorr_1d": 6.0396,
+              "var_ratio_21d": 5.1921,
+              "sent_yield_curve_spread": 5.0384,
+              "spy_ma200_ratio": 2.6174,
+              "ma50_200_xover": 3.225,
+              "pos_52w_high": 4.6968
+            },
+            "feature_penalties": {
+              "stoch_d": -0.0211,
+              "ma10_ratio": -0.0341,
+              "sent_vix_momentum_5d": -0.0399,
+              "ret_10d": -0.0499,
+              "macd_hist": -0.0748,
+              "quarter": -0.0336
+            },
+            "confidence_bias_correction": -5.02,
+            "horizon_weights": {
+              "1 Week": 0,
+              "1 Month": -0.155,
+              "1 Quarter": 0,
+              "1 Year": 0,
+              "3 Day": 0
+            },
+            "regime_adjustments": {
+              "Unknown": 0.05,
+              "Bull": 0.05
+            },
+            "analysis_findings": {
+              "total_scored": 174,
+              "overall_accuracy": 59.8,
+              "horizon_insights": {
+                "1 Week": {
+                  "accuracy": 61.3,
+                  "avg_confidence": 58.9,
+                  "calibration_error": 2.3999999999999986,
+                  "recommendation": "Well-calibrated for 1 Week"
+                },
+                "1 Month": {
+                  "accuracy": 51.3,
+                  "avg_confidence": 66.8,
+                  "calibration_error": 15.5,
+                  "recommendation": "Overconfident: reduce 1 Month confidence by ~16%"
+                },
+                "1 Quarter": {
+                  "accuracy": 61.5,
+                  "avg_confidence": 71.7,
+                  "calibration_error": 10.200000000000003,
+                  "recommendation": "Well-calibrated for 1 Quarter"
+                },
+                "1 Year": {
+                  "accuracy": 57.6,
+                  "avg_confidence": 71.5,
+                  "calibration_error": 13.899999999999999,
+                  "recommendation": "Well-calibrated for 1 Year"
+                },
+                "3 Day": {
+                  "accuracy": 73.7,
+                  "avg_confidence": 63.4,
+                  "calibration_error": 10.300000000000004,
+                  "recommendation": "Well-calibrated for 3 Day"
+                }
+              },
+              "confidence_calibration_error": 12.7,
+              "regime_insights": {
+                "Unknown": {
+                  "accuracy": 65.5,
+                  "total": 29,
+                  "scored": 29
+                },
+                "Bull": {
+                  "accuracy": 60.6,
+                  "total": 159,
+                  "scored": 109
+                },
+                "Sideways": {
+                  "accuracy": 50.0,
+                  "total": 25,
+                  "scored": 20
+                },
+                "Bear": {
+                  "accuracy": 56.2,
+                  "total": 16,
+                  "scored": 16
+                }
+              },
+              "feature_insights": {
+                "top_features": [
+                  {
+                    "feature": "vol_63d",
+                    "cumulative_score": 9.762,
+                    "accuracy_when_top": 75.7,
+                    "appearances": 2064,
+                    "correct": 1562,
+                    "wrong": 502
+                  },
+                  {
+                    "feature": "autocorr_1d",
+                    "cumulative_score": 6.0396,
+                    "accuracy_when_top": 70.9,
+                    "appearances": 1586,
+                    "correct": 1124,
+                    "wrong": 462
+                  },
+                  {
+                    "feature": "var_ratio_21d",
+                    "cumulative_score": 5.1921,
+                    "accuracy_when_top": 69.3,
+                    "appearances": 1438,
+                    "correct": 996,
+                    "wrong": 442
+                  },
+                  {
+                    "feature": "sent_yield_curve_spread",
+                    "cumulative_score": 5.0384,
+                    "accuracy_when_top": 61.8,
+                    "appearances": 998,
+                    "correct": 617,
+                    "wrong": 381
+                  },
+                  {
+                    "feature": "pos_52w_high",
+                    "cumulative_score": 4.6968,
+                    "accuracy_when_top": 68.1,
+                    "appearances": 1561,
+                    "correct": 1063,
+                    "wrong": 498
+                  }
+                ],
+                "weak_features": [
+                  {
+                    "feature": "quarter",
+                    "cumulative_score": -0.0336,
+                    "accuracy_when_top": 37.6,
+                    "appearances": 213,
+                    "correct": 80,
+                    "wrong": 133
+                  },
+                  {
+                    "feature": "ma10_ratio",
+                    "cumulative_score": -0.0341,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 25,
+                    "correct": 0,
+                    "wrong": 25
+                  },
+                  {
+                    "feature": "sent_vix_momentum_5d",
+                    "cumulative_score": -0.0399,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 25,
+                    "correct": 0,
+                    "wrong": 25
+                  },
+                  {
+                    "feature": "ret_10d",
+                    "cumulative_score": -0.0499,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 22,
+                    "correct": 0,
+                    "wrong": 22
+                  },
+                  {
+                    "feature": "macd_hist",
+                    "cumulative_score": -0.0748,
+                    "accuracy_when_top": 0.0,
+                    "appearances": 41,
+                    "correct": 0,
+                    "wrong": 41
+                  }
+                ]
+              },
+              "recommendations": [
+                "Confidence bias: -5.0%. Reduce confidence scores by ~5%.",
+                "Strong Unknown accuracy (65.5%). Model works well in Unknown markets.",
+                "Strong Bull accuracy (60.6%). Model works well in Bull markets.",
+                "Consider dropping feature 'quarter' (negative score: -0.034)",
+                "Consider dropping feature 'ma10_ratio' (negative score: -0.034)",
+                "Consider dropping feature 'sent_vix_momentum_5d' (negative score: -0.040)",
+                "Consider dropping feature 'ret_10d' (negative score: -0.050)",
+                "Consider dropping feature 'macd_hist' (negative score: -0.075)"
+              ]
+            }
+          }
+        }
+      ],
+      "retrain_count": 3,
+      "accuracy_metrics": {
+        "current_live_accuracy": 64.0,
+        "current_quick_accuracy": 0.0,
+        "trend": "improving (+26.0%)"
+      },
+      "feature_learning": {
+        "top_features": [
+          {
+            "feature": "vol_63d",
+            "cumulative_score": 25.0588,
+            "accuracy_when_top": 66.4,
+            "appearances": 7180,
+            "correct": 4770,
+            "wrong": 2410
+          },
+          {
+            "feature": "sent_yield_curve_spread",
+            "cumulative_score": 19.8269,
+            "accuracy_when_top": 57.4,
+            "appearances": 5886,
+            "correct": 3381,
+            "wrong": 2505
+          },
+          {
+            "feature": "pos_52w_high",
+            "cumulative_score": 14.4817,
+            "accuracy_when_top": 61.2,
+            "appearances": 6568,
+            "correct": 4022,
+            "wrong": 2546
+          },
+          {
+            "feature": "autocorr_1d",
+            "cumulative_score": 14.2689,
+            "accuracy_when_top": 62.6,
+            "appearances": 5080,
+            "correct": 3181,
+            "wrong": 1899
+          },
+          {
+            "feature": "sent_treasury_10y_level",
+            "cumulative_score": 13.6278,
+            "accuracy_when_top": 55.5,
+            "appearances": 4932,
+            "correct": 2737,
+            "wrong": 2195
+          }
+        ],
+        "features_analyzed": 102
+      },
+      "next_retrain": {
+        "should_retrain": false,
+        "reason": "169 predictions until next retrain",
+        "expected_improvement": "10.0%"
+      },
+      "per_horizon_improvement": {
+        "1 Week": {
+          "accuracy": 64.0,
+          "confidence": 57.6,
+          "calibration_error": 6.399999999999999
+        },
+        "1 Month": {
+          "accuracy": 0,
+          "confidence": 65.2,
+          "calibration_error": 65.2
+        },
+        "1 Quarter": {
+          "accuracy": 0,
+          "confidence": 72.0,
+          "calibration_error": 72.0
+        },
+        "1 Year": {
+          "accuracy": 0,
+          "confidence": 72.2,
+          "calibration_error": 72.2
+        },
+        "3 Day": {
+          "accuracy": 0,
+          "confidence": 60.9,
+          "calibration_error": 60.9
+        }
+      },
+      "regime_learning": {
+        "Sideways": {
+          "accuracy": 60.0,
+          "sample_size": 15
+        },
+        "Bull": {
+          "accuracy": 70.0,
+          "sample_size": 10
+        },
+        "Bear": {
+          "accuracy": 0,
+          "sample_size": 0
+        }
+      }
+    }
   }
 ]

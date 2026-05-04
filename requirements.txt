@@ -1,4 +1,3 @@
-streamlit>=1.32.0
 # yfinance 0.2.55+ ships much better handling for Yahoo's 2024-2025
 # blocking of cloud-datacenter IPs. Older versions (0.2.37 etc.) get
 # empty dataframes for valid tickers when Yahoo decides our IP looks

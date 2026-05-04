@@ -24,34 +24,13 @@ ENV/
 .env
 .env.local
 .env.*
-.streamlit/secrets.toml
 DB password.rtf
 *.rtf
 
-# Streamlit UI files — not part of the API runtime. Excluding them keeps
-# the image small and prevents Streamlit's dependencies from being pulled
-# in by transitive imports.
-app.py
-analyzer.py
-batch_scanner.py
-benchmark.py
-diag_importance.py
-backtester.py
-auto_retrain.py
-daily_briefing.py
-sentiment_analyzer.py
-paper_trader.py
-predictions_page.py
-track_record_page.py
-dashboard_page.py
-portfolio_page.py
-watchlist_page.py
-watchlist.py
-stock_detail_page.py
-recover_from_v1_log.py
-backfill_regimes.py
-backfill_top_features.py
-migrate_to_sqlite.py
+# Streamlit UI files used to live here and were excluded from the build —
+# they've since been deleted from the repo entirely (16,775 lines gone in
+# the same commit that touched this file). Block kept empty so the
+# section markers stay legible if anyone re-introduces UI files later.
 
 # Local prediction store + scratch databases. The deployed backend uses
 # Supabase (USE_SUPABASE=true in render.yaml), so these aren't needed.

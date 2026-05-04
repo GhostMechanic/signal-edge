@@ -11,17 +11,20 @@ A SELL/SHORT prediction hits target when the daily LOW reaches/crosses target.
 Also computes Peak Favorable Move — the furthest the stock moved in the
 predicted direction across the horizon (as a % from entry).
 
-Batch-fetches yfinance data by symbol and caches via Streamlit so subsequent
-page loads are instant.
+Batch-fetches yfinance data by symbol and caches in-process so repeated
+analyses across a single API request are instant. (The legacy version used
+Streamlit's @st.cache_data, but Streamlit was deleted from the repo when
+the FastAPI rewrite landed; this module is now imported by api/main.py and
+db.py only, so a plain functools.lru_cache is sufficient.)
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import streamlit as st
 import yfinance as yf
 
 
@@ -35,7 +38,13 @@ HORIZON_DAYS: Dict[str, int] = {
 }
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# Cache size: 256 distinct (symbol, start, end) windows is plenty for one
+# request's worth of analysis. The cache lives for the life of the worker
+# process; under uvicorn's default single-worker setup this matches the
+# old Streamlit ttl=3600 effectively (workers get recycled long before
+# 1 hour of idle), with the bonus that we don't depend on Streamlit's
+# session machinery.
+@lru_cache(maxsize=256)
 def _fetch_daily_history(
     symbol: str, start_str: str, end_str: str
 ) -> Optional[pd.DataFrame]:
