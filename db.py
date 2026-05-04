@@ -424,12 +424,25 @@ def _is_public_ledger(
     if confidence < _PUBLIC_LEDGER_CONFIDENCE_MIN:
         return False
 
+    # Canonical universe = S&P 500 + NASDAQ 100 + Dow 30. universe.py
+    # exposes a single `get_full_universe()` helper that returns all
+    # three lists; we flatten + dedupe here. Earlier code imported a
+    # non-existent `canonical_universe` symbol, swallowed the
+    # ImportError silently, and treated EVERY prediction as
+    # off-universe — meaning is_public_ledger landed False for every
+    # ticker, including S&P 500 names. That kept the public ledger
+    # empty even after RLS was unblocked.
     try:
-        from universe import canonical_universe
-        if symbol.strip().upper() not in canonical_universe():
+        from universe import get_full_universe
+        u = get_full_universe()
+        canon: set[str] = set()
+        for key in ("sp500", "nasdaq100", "dow30"):
+            for t in (u.get(key) or []):
+                canon.add(str(t).strip().upper())
+        if symbol.strip().upper() not in canon:
             return False
     except Exception as exc:
-        logger.exception("canonical_universe lookup failed: %s", exc)
+        logger.exception("canonical universe lookup failed: %s", exc)
         return False
 
     try:
@@ -437,8 +450,13 @@ def _is_public_ledger(
         cutoff = (
             datetime.now(timezone.utc) - timedelta(hours=_PUBLIC_LEDGER_DEDUPE_HOURS)
         ).isoformat()
+        # Service-role client for the same reason the insert path uses
+        # it: backend trusts the auth dep, RLS is redundant for backend
+        # reads scoped by explicit user_id. The cached anon `_client()`
+        # has no JWT context so RLS would block this even though the
+        # user owns the rows.
         res = (
-            _client().table("predictions")
+            _service_client().table("predictions")
               .select("id", count="exact")
               .eq("user_id",  user_id)
               .eq("symbol",   symbol)
@@ -651,7 +669,15 @@ def insert_prediction(
     }
     row = {k: v for k, v in row.items() if v is not None}
 
-    res = _client().table("predictions").insert(row).execute()
+    # Backend write: use the service-role client to bypass RLS. The
+    # cached anon client (`_client()`) has no per-request JWT attached,
+    # so RLS rejects every insert with 42501 even when row.user_id is
+    # correct. Authorization is enforced by the API layer (auth dep
+    # verifies the JWT, predict path passes cu.id explicitly into the
+    # row.user_id we set above) — RLS is then redundant for backend
+    # writes. Reads from authenticated frontend continue to use _client
+    # so RLS still enforces per-user isolation on the public surface.
+    res = _service_client().table("predictions").insert(row).execute()
 
     # supabase-py returns a list; pull the assigned id back. Fall through
     # to the request-side id on the off-chance the response is empty.
