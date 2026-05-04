@@ -2799,6 +2799,12 @@ def predict_symbol(
                 # state when the methodology suppressed the trade plan
                 # for geometry reasons (PassReason.POOR_RISK_REWARD).
                 _logger_meta: dict = {}
+                # Pass user_id explicitly — belt-and-suspenders so the
+                # write doesn't silently rely on the ContextVar making it
+                # through every layer of FastAPI's dispatch. If the async
+                # auth dep fixed propagation, this is redundant; if it
+                # didn't, this is the only thing keeping the prediction
+                # off the legacy fallback path.
                 persisted_pred_id = log_prediction_v2(
                     symbol=sym,
                     predictions=preds_for_log,
@@ -2809,6 +2815,7 @@ def predict_symbol(
                     # entry/stop/target and the model's TRADE/PASS commits
                     # before the prediction lands.
                     ohlc_df=df,
+                    user_id=cu.id,
                     # User-selected horizon — gets stamped as the canonical
                     # ledger row so the public ledger reflects what the
                     # user actually asked, not a default 1-month fallback.
@@ -2818,6 +2825,27 @@ def predict_symbol(
                     options_strategies=options_strategies_for_log,
                     out_meta=_logger_meta,
                 )
+                # If log_prediction_v2 returned "" the Supabase write was
+                # refused (and we explicitly chose not to fall back to
+                # SQLite — see prediction_logger_v2.py). Don't pretend the
+                # call succeeded; surface a real error to the frontend so
+                # the user sees a retry affordance instead of a phantom
+                # receipt the ledger can't show.
+                if not persisted_pred_id:
+                    print(
+                        f"[predict {sym}] log_prediction_v2 returned empty "
+                        f"id — Supabase write was refused; surfacing error."
+                    )
+                    return {
+                        "error": "log_persist_failed",
+                        "symbol": sym,
+                        "hint": (
+                            "Prediction couldn't be saved to the public "
+                            "ledger. Try again in a moment, and if it "
+                            "keeps happening check Render logs for the "
+                            "underlying Supabase failure."
+                        ),
+                    }
                 # Bust the analytics cache so this fresh prediction shows up
                 # in Track Record immediately, not after the 5-min TTL expires.
                 _ANALYTICS_CACHE.clear()
