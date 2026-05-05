@@ -688,6 +688,195 @@ def _parse_iso(s: str) -> datetime:
     return dt
 
 
+# ─── Watched-prediction scoring ───────────────────────────────────────────────
+# tick() handles predictions where the model committed paper money — those have
+# a model_paper_trades row whose close path updates predictions.verdict via the
+# close_model_trade RPC. Watched predictions (traded=false) don't have a trade
+# row, so without this function their verdict stays OPEN forever even after
+# horizon_ends_at passes. Methodology § 5 says verdict applies to ALL settled
+# predictions, so this fills that gap.
+#
+# Direction handling (per § 5 + § 4.1):
+#   LONG  → HIT if highs reached target; PARTIAL if highs reached checkpoint;
+#           else MISSED.
+#   SHORT → HIT if lows reached target; PARTIAL if lows reached checkpoint;
+#           else MISSED.
+#   NEUT  → no trade plan, no target / checkpoint. We score on whether the
+#           actual return at horizon end stayed inside the deadband
+#           (±NEUTRAL_RETURN_DEADBAND, default ±0.5%): HIT inside, MISSED
+#           outside. There's no PARTIAL case for Neutral — the call is either
+#           "stayed flat" or it didn't.
+
+NEUTRAL_RETURN_DEADBAND = 0.005   # ±0.5% — matches the asking-flow constant.
+
+
+def score_open_predictions(now: Optional[datetime] = None) -> dict:
+    """
+    Update verdict + rating_* fields for every prediction whose horizon has
+    elapsed and that isn't being scored elsewhere (no model_paper_trade row).
+
+    Idempotent: only touches rows where verdict='OPEN' and
+    horizon_ends_at <= now. Re-running on the same tick is safe.
+
+    Writes via service_role (bypasses RLS). Same trust model as the
+    insert path — the API authenticates user, the worker enforces
+    methodology, RLS is not the integrity boundary for backend writes.
+
+    Returns a per-run summary:
+        { "checked": N, "scored_hit": x, "scored_partial": y,
+          "scored_missed": z, "skipped_traded": k, "errors": [...] }
+    """
+    from db import _service_client
+
+    now = now or datetime.now(timezone.utc)
+    client = _service_client()
+
+    open_preds = (
+        client.table("predictions")
+              .select("*")
+              .eq("verdict", "OPEN")
+              .lte("horizon_ends_at", now.isoformat())
+              .execute()
+    ).data or []
+
+    summary = {
+        "checked":        len(open_preds),
+        "scored_hit":     0,
+        "scored_partial": 0,
+        "scored_missed":  0,
+        "skipped_traded": 0,
+        "skipped_nodata": 0,
+        "errors":         [],
+    }
+
+    for pred in open_preds:
+        pred_id = pred["id"]
+        try:
+            # Skip predictions that have a linked model_paper_trade — those
+            # are scored via tick() → close_model_trade. We only fill the
+            # gap for Watched (traded=false) predictions.
+            trade_check = (
+                client.table("model_paper_trades")
+                      .select("id", count="exact")
+                      .eq("prediction_id", pred_id)
+                      .execute()
+            )
+            if (trade_check.count or 0) > 0:
+                summary["skipped_traded"] += 1
+                continue
+
+            outcome = _evaluate_open_prediction(pred, now)
+            if outcome is None:
+                summary["skipped_nodata"] += 1
+                continue
+
+            verdict, rt, rc, re_, actual_price, actual_return = outcome
+
+            update_fields: dict = {
+                "verdict":           verdict,
+                "rating_target":     rt,
+                "rating_checkpoint": rc,
+                "rating_expiration": re_,
+                "scored_at":         now.isoformat(),
+            }
+            if actual_price is not None:
+                update_fields["actual_price"] = round(float(actual_price), 4)
+            if actual_return is not None:
+                update_fields["actual_return"] = round(float(actual_return) * 100, 4)
+
+            client.table("predictions").update(update_fields).eq(
+                "id", pred_id
+            ).execute()
+
+            key = f"scored_{verdict.lower()}"
+            if key in summary:
+                summary[key] += 1
+        except Exception as exc:
+            logger.exception("score_open_predictions failed for %s: %s",
+                             pred_id, exc)
+            summary["errors"].append({
+                "prediction_id": pred_id,
+                "error":         str(exc)[:200],
+            })
+
+    return summary
+
+
+def _evaluate_open_prediction(
+    pred: dict,
+    now: datetime,
+) -> Optional[tuple]:
+    """
+    Compute the verdict for a single Watched prediction whose horizon has
+    elapsed. Returns (verdict, rating_target, rating_checkpoint,
+    rating_expiration, actual_price, actual_return) or None when bars aren't
+    available.
+
+    Mirrors the trade-side _evaluate_trade for LONG/SHORT (target +
+    checkpoint scan over the prediction window). Adds the Neutral path
+    described above.
+    """
+    direction_raw = (pred.get("direction") or "").strip()
+    # Normalise: predictions table stores "Bullish" / "Bearish" / "Neutral".
+    if direction_raw == "Bullish":
+        direction = "LONG"
+    elif direction_raw == "Bearish":
+        direction = "SHORT"
+    else:
+        direction = "NEUTRAL"
+
+    symbol = pred["symbol"]
+    starts_at = _parse_iso(pred.get("horizon_starts_at") or pred.get("created_at"))
+
+    bars = _intraday_bars_since(symbol, starts_at)
+    if bars is None or bars.empty:
+        return None
+
+    last_close = float(bars["Close"].iloc[-1])
+    entry_price = float(pred.get("entry_price") or 0)
+
+    # Compute actual_return for the row — same shape as the close_model_trade
+    # writes for traded calls. Useful for analytics and the receipt copy.
+    if entry_price > 0:
+        try:
+            import math
+            actual_return = math.log(last_close / entry_price)
+        except Exception:
+            actual_return = None
+    else:
+        actual_return = None
+
+    # ── Neutral case ──────────────────────────────────────────────────────
+    if direction == "NEUTRAL":
+        # No target / checkpoint to scan against. Score on whether the
+        # actual log-return at horizon end stayed inside the deadband.
+        if actual_return is None:
+            # No entry to compute against — can't honestly score.
+            return None
+        if abs(actual_return) <= NEUTRAL_RETURN_DEADBAND:
+            return ("HIT", "hit", "hit", "hit", last_close, actual_return)
+        return ("MISSED", "miss", "miss", "miss", last_close, actual_return)
+
+    # ── LONG / SHORT ──────────────────────────────────────────────────────
+    target_price = float(pred["target_price"]) if pred.get("target_price") else None
+    if target_price and entry_price > 0:
+        target_return    = (target_price / entry_price) - 1
+        checkpoint_return = target_return / 2
+        checkpoint_price = entry_price * (1 + checkpoint_return)
+    else:
+        checkpoint_price = None
+
+    target_hit_bool, checkpoint_hit_bool, _stop_hit_bool = _scan_bars(
+        bars, direction, target_price, checkpoint_price, stop_price=None,
+    )
+
+    if target_hit_bool:
+        return ("HIT", "hit", "hit", "hit", last_close, actual_return)
+    if checkpoint_hit_bool:
+        return ("PARTIAL", "miss", "hit", "miss", last_close, actual_return)
+    return ("MISSED", "miss", "miss", "miss", last_close, actual_return)
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def _cli() -> int:
@@ -716,15 +905,24 @@ def _cli() -> int:
         result = user_eod_pass()
         print(f"users: {result}")
         return 0
+    if cmd in ("score_open", "watched", "score_watched"):
+        # Score Watched (non-traded) predictions whose horizon has elapsed.
+        # tick() handles traded predictions via close_model_trade RPC; this
+        # fills the gap so verdict ≠ "OPEN" forever for Watched calls.
+        result = score_open_predictions()
+        print(f"score_open: {result}")
+        return 0
     if cmd == "both":
         t = tick()
         e = eod_pass()
         u = user_eod_pass()
+        s = score_open_predictions()
         r = refresh_model_adjustments()
-        print(f"tick   : {t}")
-        print(f"eod    : {e}")
-        print(f"users  : {u}")
-        print(f"refresh: {r}")
+        print(f"tick      : {t}")
+        print(f"eod       : {e}")
+        print(f"users     : {u}")
+        print(f"score_open: {s}")
+        print(f"refresh   : {r}")
         return 0
     if cmd in ("backfill_option_expiries", "backfill"):
         from db import backfill_option_expiry_dates
@@ -741,8 +939,8 @@ def _cli() -> int:
         print(f"retrain_pending: {result}")
         return 0
 
-    print(f"unknown command: {cmd!r}; expected tick|eod|users|both|"
-          f"backfill|refresh|retrain_pending")
+    print(f"unknown command: {cmd!r}; expected tick|eod|users|score_open|"
+          f"both|backfill|refresh|retrain_pending")
     return 2
 
 
