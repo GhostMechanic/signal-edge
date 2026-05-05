@@ -47,3 +47,4 @@ retrain_status_*.md
 *.xlsx.bak
 DB password.rtf
 *.rtf
+SCHEDULED_RUN_REPORT_*.md
