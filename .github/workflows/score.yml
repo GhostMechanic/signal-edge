@@ -68,6 +68,12 @@ jobs:
           USE_SUPABASE: 'true'
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Daily digest email — optional. When RESEND_API_KEY isn't
+          # set, digest_email.py runs in dry-run mode (prints what it
+          # would send, sends nothing). Add RESEND_API_KEY +
+          # DIGEST_FROM_ADDRESS as repo secrets to enable real sends.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_FROM_ADDRESS: ${{ secrets.DIGEST_FROM_ADDRESS }}
         run: |
           # workflow_dispatch forwards its `command` input.
           # Scheduled runs decide tick vs both based on the EOD slot:
@@ -82,3 +88,12 @@ jobs:
           fi
           echo "Running: python -m scoring_worker $CMD"
           python -m scoring_worker "$CMD"
+
+          # Daily digest — fire only on the EOD slot ("both"). The
+          # script no-ops cleanly when RESEND_API_KEY is unset, so
+          # this line is safe to run even before the email service
+          # is configured.
+          if [ "$CMD" = "both" ]; then
+            echo "Running daily digest..."
+            python -m digest_email || echo "digest failed (non-fatal)"
+          fi

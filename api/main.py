@@ -412,6 +412,128 @@ def _resolve_close_on_or_before(symbol: str, target_iso_date: str) -> Optional[f
         return None
 
 
+@app.get("/api/me/predictions")
+def my_predictions(
+    cu: CurrentUser = Depends(get_current_user),
+    status: str = "open",  # "open" | "settled" | "all"
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    The signed-in user's own predictions, filtered by status.
+
+    Powers the /me personal dashboard. Returns the user's predictions
+    table rows (NOT the public ledger — these include the user's
+    Watched calls, which the public ledger strips), enriched per-row
+    with the current live price + a few derived numbers the dashboard
+    cards render straight onto progress bars:
+
+      • current_price        — fresh from yfinance (cached 15min server
+                                side via /api/quote/<sym> path).
+      • progress_pct          — how far the stock has moved from entry
+                                toward target (positive = toward target,
+                                negative = toward stop). For LONG calls
+                                this is (current − entry) / (target −
+                                entry); for SHORT, mirrored.
+      • distance_to_target_pct — magnitude in % from current to target.
+      • distance_to_stop_pct   — magnitude in % from current to stop.
+      • days_until_judgment   — days to horizon_ends_at; negative when
+                                past expiry (still OPEN means scoring
+                                hasn't run yet).
+
+    Service-role read so RLS doesn't block the auth'd user from seeing
+    their own rows. user_id filter applied explicitly.
+    """
+    from db import _service_client
+
+    valid_status = {"open", "settled", "all"}
+    if status not in valid_status:
+        return {"error": "invalid_status", "valid": sorted(valid_status)}
+
+    client = _service_client()
+    q = client.table("predictions").select("*").eq("user_id", cu.id)
+    if status == "open":
+        q = q.eq("verdict", "OPEN")
+    elif status == "settled":
+        q = q.in_("verdict", ["HIT", "PARTIAL", "MISSED"])
+
+    try:
+        rows = (
+            q.order("created_at", desc=True)
+             .limit(min(max(limit, 1), 200))
+             .execute()
+        ).data or []
+    except Exception as exc:
+        print(f"[me/predictions] query failed for {cu.id}: {exc}")
+        return {"error": "query_failed", "detail": str(exc)[:200]}
+
+    # Fetch current prices once per unique symbol — saves a round trip
+    # when the user has multiple horizons of the same ticker.
+    unique_symbols = list({r.get("symbol", "").upper() for r in rows if r.get("symbol")})
+    price_cache: Dict[str, Optional[float]] = {}
+    for sym in unique_symbols:
+        try:
+            price_cache[sym] = _resolve_current_price(sym)
+        except Exception:
+            price_cache[sym] = None
+
+    now_utc = datetime.now(timezone.utc)
+    enriched: list = []
+    for r in rows:
+        sym     = (r.get("symbol") or "").upper()
+        direction = r.get("direction") or "Neutral"
+        entry   = float(r.get("entry_price") or 0)
+        target  = float(r.get("target_price") or 0) if r.get("target_price") is not None else None
+        stop    = float(r.get("stop_price")   or 0) if r.get("stop_price")   is not None else None
+        current = price_cache.get(sym)
+
+        progress_pct: Optional[float] = None
+        distance_to_target_pct: Optional[float] = None
+        distance_to_stop_pct: Optional[float] = None
+        days_until_judgment: Optional[float] = None
+
+        if current is not None and entry > 0 and target is not None:
+            denom = target - entry
+            if abs(denom) > 1e-9:
+                progress_raw = (current - entry) / denom
+                # Mirror for SHORT — for a Bearish call, we WANT the
+                # stock to fall; positive progress = current is closer
+                # to target than entry (in the Bearish sense).
+                if direction == "Bearish":
+                    progress_raw = -progress_raw
+                progress_pct = round(progress_raw * 100, 2)
+            distance_to_target_pct = round(abs((target - current) / current) * 100, 2) if current > 0 else None
+        if current is not None and stop is not None and current > 0:
+            distance_to_stop_pct = round(abs((stop - current) / current) * 100, 2)
+
+        ends_at_iso = r.get("horizon_ends_at")
+        if ends_at_iso:
+            try:
+                ends_at = datetime.fromisoformat(ends_at_iso.replace("Z", "+00:00"))
+                if ends_at.tzinfo is None:
+                    ends_at = ends_at.replace(tzinfo=timezone.utc)
+                days_until_judgment = round(
+                    (ends_at - now_utc).total_seconds() / 86400, 2
+                )
+            except Exception:
+                pass
+
+        enriched.append({
+            **r,
+            "current_price":           current,
+            "progress_pct":            progress_pct,
+            "distance_to_target_pct":  distance_to_target_pct,
+            "distance_to_stop_pct":    distance_to_stop_pct,
+            "days_until_judgment":     days_until_judgment,
+        })
+
+    return {
+        "user_id": cu.id,
+        "status":  status,
+        "count":   len(enriched),
+        "rows":    enriched,
+    }
+
+
 @app.get("/api/paper-portfolio")
 def user_paper_portfolio(
     cu: CurrentUser = Depends(get_current_user),
