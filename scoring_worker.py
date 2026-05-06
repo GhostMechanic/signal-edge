@@ -870,11 +870,42 @@ def _evaluate_open_prediction(
         bars, direction, target_price, checkpoint_price, stop_price=None,
     )
 
+    # Methodology § 5: the three rating fields are independent reads.
+    #   • rating_target     — was target_price touched (in the predicted
+    #                          direction) at any point during the window?
+    #   • rating_checkpoint — was the §5.1 midpoint touched at any point?
+    #   • rating_expiration — was direction correct AT horizon_ends_at,
+    #                          i.e. is the closing price on the right side
+    #                          of entry_price?
+    #
+    # Pre-fix this code hardcoded rating_expiration='hit' whenever target
+    # was hit — locking target_hit_rate and expiration_win_rate together
+    # mathematically. A stock that touched target mid-window then
+    # reversed to close below entry should register as
+    # rating_expiration='miss' under the strict reading; previously it
+    # registered 'hit'. Fixing makes Generous and Strict actually
+    # measure different things.
+    if actual_return is None:
+        # Without an actual_return we can't honestly score the strict
+        # reading. Fall through to the conservative interpretation:
+        # endpoint_correct = whether last_close is on the right side
+        # of entry_price even if return is unknown.
+        if direction == "LONG":
+            endpoint_correct = last_close > entry_price
+        else:  # SHORT
+            endpoint_correct = last_close < entry_price
+    else:
+        if direction == "LONG":
+            endpoint_correct = actual_return > 0
+        else:  # SHORT
+            endpoint_correct = actual_return < 0
+    rating_expiration = "hit" if endpoint_correct else "miss"
+
     if target_hit_bool:
-        return ("HIT", "hit", "hit", "hit", last_close, actual_return)
+        return ("HIT", "hit", "hit", rating_expiration, last_close, actual_return)
     if checkpoint_hit_bool:
-        return ("PARTIAL", "miss", "hit", "miss", last_close, actual_return)
-    return ("MISSED", "miss", "miss", "miss", last_close, actual_return)
+        return ("PARTIAL", "miss", "hit", rating_expiration, last_close, actual_return)
+    return ("MISSED", "miss", "miss", rating_expiration, last_close, actual_return)
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
