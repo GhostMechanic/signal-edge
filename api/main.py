@@ -3797,8 +3797,22 @@ def _synthesize_detail_from_supabase(
             except Exception:
                 pre_ctx = pred_date_str
             sliced = series[series.index >= pre_ctx]
-            if horizon_end_str:
-                sliced = sliced[sliced.index <= horizon_end_str]
+            # Upper bound is whichever is later: horizon_end or today.
+            # Pre-expiry calls keep their original behavior (no future
+            # data exists, the slice naturally ends at the latest bar).
+            # Post-expiry calls now extend through today so users see
+            # how the stock actually moved after judgment passed —
+            # previously the chart hard-stopped at horizon_end which
+            # made stale-feeling receipts (CROX scored MISSED on May 3
+            # but the chart only went to May 1, hiding 4 days of
+            # actual price action).
+            today_str = datetime.utcnow().strftime("%Y-%m-%d")
+            upper_bound = (
+                today_str
+                if (not horizon_end_str or today_str > horizon_end_str)
+                else horizon_end_str
+            )
+            sliced = sliced[sliced.index <= upper_bound]
             price_curve = [
                 {"date": d, "price": round(float(v), 2)}
                 for d, v in sliced.items()
