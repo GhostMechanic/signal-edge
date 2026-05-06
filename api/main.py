@@ -576,6 +576,36 @@ def user_paper_portfolio(
     return _json_safe(book)
 
 
+def _rr_from_logger_meta(meta: Dict[str, Any]) -> Optional[float]:
+    """
+    Compute reward / risk from prediction_logger_v2's out_meta dict.
+    Reads entry_price / stop_price / target_price (the methodology-clamped
+    values that the trade-attachment phase stamped onto the record), not
+    the pre-computed `risk_reward` field. This makes the API the sole
+    source of truth for R:R: even if some upstream path produces a stale
+    or wrong `risk_reward` number, the API response always derives R:R
+    from the same entry/stop/target the row was persisted with — which is
+    what /api/ledger/{id} will return when the frontend re-reads the row.
+
+    Returns None when any input is missing or risk is zero (Neutral
+    predictions, broken plans, etc.) so the frontend can fall back
+    cleanly. Rounded to 4 decimal places to match the pre-fix shape.
+    """
+    e = meta.get("entry_price")
+    s = meta.get("stop_price")
+    t = meta.get("target_price")
+    if e is None or s is None or t is None:
+        return None
+    try:
+        risk = abs(float(e) - float(s))
+        reward = abs(float(t) - float(e))
+    except (TypeError, ValueError):
+        return None
+    if risk <= 0:
+        return None
+    return round(reward / risk, 4)
+
+
 def _resolve_current_price(symbol: str) -> Optional[float]:
     """
     Fetch the latest available close for `symbol`. Used by the paper-trade
@@ -3107,7 +3137,16 @@ def predict_symbol(
             # / display. Both default to None when log_prediction_v2 was
             # skipped (suppressed horizons, etc.).
             "trade_pass_reason": (locals().get("_logger_meta") or {}).get("trade_pass_reason"),
-            "trade_risk_reward": (locals().get("_logger_meta") or {}).get("risk_reward"),
+            # Recompute R:R inline from the same _logger_meta entry/stop/
+            # target values that prediction_logger_v2 saved. Pre-fix the
+            # response read the pre-computed `risk_reward` field, which
+            # on MU surfaced 0.51 even though entry $640.20 / stop
+            # $588.984 / target $681.67 in Supabase produce 0.81 (the
+            # 8% stop ceiling clamp). Recomputing here from the saved
+            # methodology values guarantees the API number is internally
+            # consistent with what got persisted, regardless of whatever
+            # produced the pre-computed field.
+            "trade_risk_reward": _rr_from_logger_meta(locals().get("_logger_meta") or {}),
         }
         # Strip NaN/Inf so the JSON parses cleanly in the browser.
         try:
