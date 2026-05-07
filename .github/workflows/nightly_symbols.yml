@@ -1,0 +1,85 @@
+name: Nightly Symbol Snapshots
+
+# Walks the canonical universe (S&P 500 + NASDAQ-100 + Dow 30, deduped
+# = ~600 tickers) once per US-market-day, runs the model on each, and
+# writes a row per (symbol, snapshot_date, horizon) into the
+# `symbol_snapshots` Supabase table. Powers the model-analysis card on
+# every /stock/[symbol] SEO page.
+#
+# Why a separate workflow (not piggybacked on the EOD slot in score.yml):
+#   • Different cadence — once daily, not every 5 min.
+#   • Different runtime — ~600 inferences × 5–15s each = 30–90 min,
+#     vs. the scoring loop's 1–3 min. Scoring needs `timeout-minutes: 10`,
+#     this needs ~60. Splitting keeps either side from being held hostage
+#     by the other's failure mode.
+#   • Different failure semantics — a stuck nightly batch shouldn't
+#     stop the next 5-min tick from firing.
+#
+# Schedule: 21:30 UTC (5:30 PM ET during EDT, 4:30 PM ET during EST)
+# every weekday. Both DSTs land 60–90 min after market close, after
+# yfinance has settled today's EOD bar.
+#
+# GitHub repo secrets required:
+#   • SUPABASE_URL              — https://<project>.supabase.co
+#   • SUPABASE_SERVICE_ROLE_KEY — sb_secret_* (service role)
+#   • FINNHUB_API_KEY           — optional; not used by the batch but
+#                                  bundled here so future endpoint-fetch
+#                                  steps in this workflow inherit it.
+
+on:
+  schedule:
+    # 21:30 UTC every weekday — well after US market close in both DSTs.
+    - cron: '30 21 * * 1-5'
+  # Manual trigger for ad-hoc runs (e.g. when adding new tickers to the
+  # universe, or backfilling a missed nightly).
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Space-separated tickers (blank = full canonical universe)'
+        required: false
+        default: ''
+      limit:
+        description: 'Cap universe size (debug)'
+        required: false
+        default: ''
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    # 600 tickers × ~5–10s each averages ~50 min. Add headroom for
+    # yfinance retries + occasional slow model loads.
+    timeout-minutes: 90
+    # If yesterday's nightly is still running when today's cron fires,
+    # let yesterday finish — the upsert is idempotent. Don't pile up.
+    concurrency:
+      group: nightly-symbols
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run nightly symbol pass
+        env:
+          USE_SUPABASE: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          # workflow_dispatch may pass `symbols` (specific tickers) or
+          # `limit` (cap on universe size). Forward to the script CLI.
+          ARGS=""
+          if [ -n "${{ inputs.symbols }}" ]; then
+            ARGS="${{ inputs.symbols }}"
+          fi
+          if [ -n "${{ inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ inputs.limit }}"
+          fi
+          echo "Running: python -m nightly_symbol_pass $ARGS"
+          python -m nightly_symbol_pass $ARGS
