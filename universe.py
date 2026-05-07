@@ -26,6 +26,14 @@ DOW_30 = [
 ]
 
 # ── Hardcoded NASDAQ-100 (stable enough; Wikipedia backup) ────────────────────
+# Used as a fallback when _fetch_nasdaq100_wiki() fails. Keep this list
+# aligned to the real NASDAQ-100; missing tickers here cause silent
+# off-universe rejections on perfectly valid mega-cap names. Recent
+# additions verified manually:
+#   • ORCL (Oracle, NASDAQ:ORCL) — added to NASDAQ-100 in 2023.
+#     Surfaced when an ORCL prediction got stamped
+#     trade_pass_reason="symbol_not_in_universe" despite Oracle being
+#     both an S&P 500 and NASDAQ-100 constituent.
 NASDAQ_100 = [
     "AAPL","ABNB","ADBE","ADI","ADP","ADSK","AEP","AMAT","AMD","AMGN",
     "AMZN","ANSS","APP","ARM","ASML","AVGO","AZN","BIIB","BKNG","BKR",
@@ -34,9 +42,9 @@ NASDAQ_100 = [
     "FAST","FTNT","GEHC","GFS","GILD","GOOG","GOOGL","HON","IDXX","ILMN",
     "INTC","INTU","ISRG","KDP","KHC","KLAC","LRCX","LULU","MAR","MCHP",
     "MDB","MDLZ","META","MNST","MRNA","MRVL","MSFT","MU","NFLX","NVDA",
-    "NXPI","ODFL","ON","ORLY","PANW","PAYX","PCAR","PDD","PEP","PYPL",
-    "QCOM","REGN","ROP","ROST","SBUX","SMCI","SNPS","SPLK","TEAM","TMUS",
-    "TSLA","TTD","TXN","VRSK","VRTX","WBD","WDAY","XEL","ZS","ZM",
+    "NXPI","ODFL","ON","ORCL","ORLY","PANW","PAYX","PCAR","PDD","PEP",
+    "PYPL","QCOM","REGN","ROP","ROST","SBUX","SMCI","SNPS","SPLK","TEAM",
+    "TMUS","TSLA","TTD","TXN","VRSK","VRTX","WBD","WDAY","XEL","ZS","ZM",
 ]
 
 

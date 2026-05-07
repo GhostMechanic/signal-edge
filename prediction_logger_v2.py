@@ -411,14 +411,39 @@ def _resolve_trade_imports():
             open_model_trade_for_prediction,
         )
         from model_portfolio import get_portfolio_repo
-        try:
-            from universe import canonical_universe as _uni
-        except (ImportError, AttributeError):
-            _uni = lambda: frozenset()
+        # Canonical universe loader. Methodology § 2.1.2: the model
+        # only commits paper money to S&P 500 + NASDAQ-100 + Dow 30
+        # tickers. universe.py exposes `get_full_universe()` which
+        # returns {"sp500", "nasdaq100", "dow30", "all"}; there is NO
+        # `canonical_universe` symbol — the previous code imported
+        # that non-existent name and the bare `except` swallowed the
+        # ImportError silently, falling back to `lambda: frozenset()`
+        # (an empty set). Result: every ticker — ORCL, AAPL, MSFT,
+        # everything — failed the `symbol not in canonical_universe`
+        # check and got stamped trade_pass_reason="symbol_not_in_universe",
+        # so paper money never got committed and the receipts always
+        # showed the OFF-UNIVERSE panel even on S&P 500 names.
+        # Same class of bug as db._is_public_ledger (already fixed) —
+        # this is the trade-gate's mirror of that.
+        def _build_canonical_universe() -> frozenset[str]:
+            try:
+                from universe import get_full_universe
+                u = get_full_universe()
+                tickers: set[str] = set()
+                for key in ("sp500", "nasdaq100", "dow30"):
+                    for t in (u.get(key) or []):
+                        tickers.add(str(t).strip().upper())
+                return frozenset(tickers)
+            except Exception:
+                logger.exception(
+                    "canonical universe load failed; trade gate "
+                    "will reject every symbol as off-universe",
+                )
+                return frozenset()
         _compute_trade_attachment_fn = compute_trade_attachment
         _open_model_trade_fn         = open_model_trade_for_prediction
         _get_portfolio_repo_fn       = get_portfolio_repo
-        _canonical_universe_fn       = _uni
+        _canonical_universe_fn       = _build_canonical_universe
     return (
         _compute_trade_attachment_fn,
         _open_model_trade_fn,
