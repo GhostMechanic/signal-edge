@@ -221,8 +221,13 @@ def load_watchlist(user_id: Optional[str] = None) -> list[str]:
 
     uid = _current_user_id(user_id)
     try:
+        # Service client + explicit user_id filter — anon `_client()`
+        # has no per-request JWT so RLS would return zero rows even for
+        # the user's own watchlist. Same RLS-vs-anon pattern as the
+        # paper-trade reads. See "RLS audit" notes in the trade-open
+        # functions for the full story.
         res = (
-            _client().table("watchlists")
+            _service_client().table("watchlists")
             .select("symbol")
             .eq("user_id", uid)
             .order("added_at", desc=False)
@@ -254,14 +259,18 @@ def save_watchlist(symbols: list[str], user_id: Optional[str] = None) -> list[st
         to_add = desired - current
         to_remove = current - desired
 
+        # Service client — see RLS audit note in load_watchlist. The
+        # rows carry user_id explicitly so the security property RLS
+        # was giving us is preserved by the row payload + delete
+        # filter, not by the auth.uid() check.
         if to_add:
-            _client().table("watchlists").insert([
+            _service_client().table("watchlists").insert([
                 {"user_id": uid, "symbol": s} for s in to_add
             ]).execute()
 
         if to_remove:
             (
-                _client().table("watchlists")
+                _service_client().table("watchlists")
                 .delete()
                 .eq("user_id", uid)
                 .in_("symbol", list(to_remove))
@@ -285,7 +294,8 @@ def add_to_watchlist(symbol: str, user_id: Optional[str] = None) -> list[str]:
 
     uid = _current_user_id(user_id)
     try:
-        _client().table("watchlists").upsert(
+        # Service client — see RLS audit note in load_watchlist.
+        _service_client().table("watchlists").upsert(
             {"user_id": uid, "symbol": sym},
             on_conflict="user_id,symbol",
         ).execute()
@@ -306,8 +316,9 @@ def remove_from_watchlist(symbol: str, user_id: Optional[str] = None) -> list[st
 
     uid = _current_user_id(user_id)
     try:
+        # Service client — see RLS audit note in load_watchlist.
         (
-            _client().table("watchlists")
+            _service_client().table("watchlists")
             .delete()
             .eq("user_id", uid)
             .eq("symbol", sym)
@@ -529,8 +540,11 @@ def find_todays_prediction(
     ).isoformat()
 
     try:
+        # Service client + explicit user_id filter — anon `_client()` has
+        # no per-request JWT so the query would silently return zero
+        # rows even when the user has a matching prediction. RLS audit.
         res = (
-            _client().table("predictions")
+            _service_client().table("predictions")
               .select("id")
               .eq("user_id", uid)
               .eq("symbol", sym)
@@ -714,7 +728,12 @@ def get_accuracy_bands(public_only: bool = True) -> dict:
             "store has no `traded` column). Set USE_SUPABASE=true."
         )
 
-    c = _client()
+    # Service client — anon RLS would silently undercount the
+    # public_only=False (admin/analytics) branch since auth.uid() is
+    # null; under public_only=True the result is the same either way,
+    # but using service_client makes the function's behavior agnostic
+    # to caller context. RLS audit.
+    c = _service_client()
     q = c.table("predictions").select("verdict, traded").neq("verdict", "OPEN")
     if public_only:
         q = q.eq("is_public_ledger", True)
@@ -971,7 +990,11 @@ def get_user_paper_portfolio(user_id: Optional[str] = None) -> dict:
         )
 
     uid = ensure_user_paper_portfolio(user_id)
-    c = _client()
+    # Service client — anon `_client()` has no per-request JWT so RLS
+    # would silently return zero rows for both the portfolio summary
+    # and the user's own paper trades. Filtering by user_id keeps the
+    # security property the RLS check provided. RLS audit.
+    c = _service_client()
 
     p_res = (
         c.table("paper_portfolios")
@@ -1380,7 +1403,12 @@ def close_user_paper_trade(
         )
 
     uid = _current_user_id(user_id)
-    c = _client()
+    # Service client + explicit user_id filter — anon `_client()` had
+    # no per-request JWT so the trade lookup silently returned zero
+    # rows on freshly-opened trades. The post-fetch ownership check
+    # below is now redundant (the .eq("user_id", uid) filter guarantees
+    # ownership) but kept as defense-in-depth. RLS audit.
+    c = _service_client()
 
     t_res = (
         c.table("paper_trades")
@@ -1388,12 +1416,16 @@ def close_user_paper_trade(
              "id, user_id, symbol, direction, entry_price, qty, status"
          )
          .eq("id", trade_id)
-         .single()
+         .eq("user_id", uid)
+         .maybe_single()
          .execute()
     )
     trade = t_res.data
     if not trade:
-        raise ValueError(f"trade not found: {trade_id}")
+        raise ValueError(
+            f"trade not found: {trade_id} (or it belongs to a different "
+            "account)"
+        )
     if trade.get("user_id") != uid:
         raise ValueError("trade does not belong to this user")
     if trade.get("status") != "open":
@@ -1858,7 +1890,11 @@ def settle_expired_option_trades(user_id: Optional[str] = None) -> int:
         return 0
 
     uid = _current_user_id(user_id)
-    c = _client()
+    # Service client + the existing user_id filter — anon RLS would
+    # silently return zero open trades and the settler would never
+    # fire, leaving expired option positions stuck in `open` status
+    # forever. RLS audit.
+    c = _service_client()
 
     # Pull all open option trades for this user. If the kind column
     # doesn't exist yet (migration 0007 not applied), no-op — there
@@ -1994,7 +2030,11 @@ def backfill_option_expiry_dates(*, dry_run: bool = False) -> dict:
             "backfill_option_expiry_dates requires Supabase mode."
         )
 
-    c = _client()
+    # Service client — admin/maintenance walk across ALL users' open
+    # option trades. Anon RLS would silently return zero rows and make
+    # this routine a no-op, never actually backfilling anything.
+    # RLS audit.
+    c = _service_client()
     summary: dict = {
         "checked":     0,
         "updated":     0,
@@ -2091,7 +2131,10 @@ def close_user_paper_option_trade(
         )
 
     uid = _current_user_id(user_id)
-    c = _client()
+    # Service client + explicit user_id filter — same RLS-vs-anon bug
+    # as close_user_paper_trade. The post-fetch ownership check below
+    # is now redundant but kept as defense-in-depth. RLS audit.
+    c = _service_client()
 
     t_res = (
         c.table("paper_trades")
@@ -2100,12 +2143,16 @@ def close_user_paper_option_trade(
              "instrument_data"
          )
          .eq("id", trade_id)
-         .single()
+         .eq("user_id", uid)
+         .maybe_single()
          .execute()
     )
     trade = t_res.data
     if not trade:
-        raise ValueError(f"trade not found: {trade_id}")
+        raise ValueError(
+            f"trade not found: {trade_id} (or it belongs to a different "
+            "account)"
+        )
     if trade.get("user_id") != uid:
         raise ValueError("trade does not belong to this user")
     if trade.get("status") != "open":
@@ -2210,11 +2257,17 @@ def get_prediction_detail(prediction_id: str) -> Optional[dict]:
             "get_prediction_detail requires Supabase mode."
         )
 
+    # Service client — anon RLS would only return is_public_ledger=true
+    # rows, but the docstring contract is "return the row or None for
+    # 404 — Phase 2 will add tier-gating in this function". Without
+    # the bypass, off-public-ledger predictions silently 404 even when
+    # the caller is the row's owner. Phase 2 work will add the
+    # tier/owner check here. RLS audit.
     res = (
-        _client().table("predictions")
+        _service_client().table("predictions")
             .select("*")
             .eq("id", prediction_id)
-            .single()
+            .maybe_single()
             .execute()
     )
     return res.data or None
@@ -2285,7 +2338,12 @@ def _supabase_prediction_counts(public_only: bool = False) -> dict:
     if not USE_SUPABASE:
         return {}
     try:
-        client = _client()
+        # Service client — when public_only=False (admin/analytics
+        # callers), anon RLS would silently undercount by only seeing
+        # public-ledger rows. Service bypass returns the true totals.
+        # When public_only=True the result is identical either way.
+        # RLS audit.
+        client = _service_client()
 
         def _count(filter_fn=None) -> int:
             q = client.table("predictions").select("id", count="exact")
@@ -2430,7 +2488,10 @@ def log_usage(kind: str, meta: Optional[dict] = None, user_id: Optional[str] = N
         return
     uid = _current_user_id(user_id)
     try:
-        _client().table("usage_events").insert({
+        # Service client — anon RLS would block the write since
+        # auth.uid() is null. Row carries user_id explicitly so the
+        # security guarantee is preserved by the payload. RLS audit.
+        _service_client().table("usage_events").insert({
             "user_id": uid,
             "kind": kind,
             "meta": meta or {},
@@ -2449,8 +2510,11 @@ def count_usage_this_month(kind: str, user_id: Optional[str] = None) -> int:
         month_start = datetime.now(timezone.utc).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
         )
+        # Service client + existing user_id filter — anon RLS would
+        # silently zero this out and rate limits would never trigger.
+        # RLS audit.
         res = (
-            _client().table("usage_events")
+            _service_client().table("usage_events")
             .select("id", count="exact")
             .eq("user_id", uid)
             .eq("kind", kind)
@@ -2474,11 +2538,15 @@ def get_subscription(user_id: Optional[str] = None) -> dict:
         return default
     uid = _current_user_id(user_id)
     try:
+        # Service client + existing user_id filter — anon RLS would
+        # always return zero rows, so every user would render as
+        # `{"plan": "free", "status": "active"}` regardless of actual
+        # subscription state. RLS audit.
         res = (
-            _client().table("subscriptions")
+            _service_client().table("subscriptions")
             .select("*")
             .eq("user_id", uid)
-            .single()
+            .maybe_single()
             .execute()
         )
         return res.data or default
