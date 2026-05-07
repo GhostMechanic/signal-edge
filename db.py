@@ -2311,6 +2311,214 @@ def get_public_ledger(
     return (q.execute()).data or []
 
 
+def get_symbol_predictions(symbol: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
+    """All public-ledger predictions for `symbol`, newest first.
+
+    Powers the "All predictions on this stock" table on /stock/[symbol].
+    Public-tier read — only returns predictions where is_public_ledger=true,
+    which already filters off-universe + thin-data names.
+    """
+    if not USE_SUPABASE:
+        return []
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return []
+    try:
+        # Anon-fine here: is_public_ledger=true is what we want, and
+        # that's exactly what anon RLS lets through. No service bypass
+        # needed — these rows are intentionally public.
+        res = (
+            _client().table("predictions")
+            .select(
+                "id, symbol, direction, horizon, predicted_return, "
+                "predicted_price, current_price, confidence, traded, "
+                "verdict, actual_return, actual_price, "
+                "rating_target, rating_checkpoint, rating_expiration, "
+                "created_at, horizon_ends_at, scored_at"
+            )
+            .eq("symbol", sym)
+            .eq("is_public_ledger", True)
+            .order("created_at", desc=True)
+            .range(offset, offset + max(0, limit - 1))
+            .execute()
+        )
+        return res.data or []
+    except Exception as exc:
+        logger.exception("get_symbol_predictions failed for %s: %s", sym, exc)
+        return []
+
+
+def get_symbol_track_record(symbol: str) -> dict:
+    """Aggregate the model's track record on a single ticker.
+
+    Returns:
+        {
+            "total_predictions":  int,
+            "settled":            int,
+            "hit":                int,
+            "partial":            int,
+            "missed":             int,
+            "hit_rate":           float | None,
+            "traded_count":       int,
+            "traded_hit_rate":    float | None,
+            "avg_return_pct":     float | None,    # mean actual_return on settled rows
+            "best_return_pct":    float | None,
+            "worst_return_pct":   float | None,
+        }
+
+    Computed in Python from a single SELECT — symbol-scoped data is
+    small enough (≤ a few hundred rows per ticker) that an aggregate
+    SQL query isn't worth the round-trip. Only counts public-ledger
+    predictions; off-universe / suppressed rows don't enter the
+    track record.
+    """
+    empty = {
+        "total_predictions": 0,
+        "settled":           0,
+        "hit":               0,
+        "partial":           0,
+        "missed":            0,
+        "hit_rate":          None,
+        "traded_count":      0,
+        "traded_hit_rate":   None,
+        "avg_return_pct":    None,
+        "best_return_pct":   None,
+        "worst_return_pct":  None,
+    }
+    if not USE_SUPABASE:
+        return empty
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return empty
+    try:
+        res = (
+            _client().table("predictions")
+            .select("verdict, traded, actual_return")
+            .eq("symbol", sym)
+            .eq("is_public_ledger", True)
+            .execute()
+        )
+        rows = res.data or []
+    except Exception as exc:
+        logger.exception("get_symbol_track_record failed for %s: %s", sym, exc)
+        return empty
+
+    total = len(rows)
+    if total == 0:
+        return empty
+
+    settled = [r for r in rows if (r.get("verdict") or "OPEN") != "OPEN"]
+    hit     = sum(1 for r in settled if r.get("verdict") == "HIT")
+    partial = sum(1 for r in settled if r.get("verdict") == "PARTIAL")
+    missed  = sum(1 for r in settled if r.get("verdict") == "MISSED")
+
+    traded         = [r for r in settled if r.get("traded") is True]
+    traded_hits    = sum(1 for r in traded if r.get("verdict") == "HIT")
+    traded_count   = len(traded)
+
+    returns = [
+        float(r["actual_return"])
+        for r in settled
+        if r.get("actual_return") is not None
+        and isinstance(r.get("actual_return"), (int, float))
+    ]
+    avg_ret  = round(sum(returns) / len(returns), 4) if returns else None
+    best_ret = round(max(returns), 4) if returns else None
+    worst_ret = round(min(returns), 4) if returns else None
+
+    return {
+        "total_predictions": total,
+        "settled":           len(settled),
+        "hit":               hit,
+        "partial":           partial,
+        "missed":            missed,
+        "hit_rate":          round(hit / len(settled), 4) if settled else None,
+        "traded_count":      traded_count,
+        "traded_hit_rate":   round(traded_hits / traded_count, 4) if traded_count else None,
+        "avg_return_pct":    avg_ret,
+        "best_return_pct":   best_ret,
+        "worst_return_pct":  worst_ret,
+    }
+
+
+def get_latest_symbol_snapshots(symbol: str) -> list[dict]:
+    """Latest nightly snapshot per horizon for `symbol`, sorted by horizon.
+
+    Reads from the `symbol_snapshots` table (migration 0011). Returns []
+    when the nightly batch hasn't run yet, when the symbol isn't in the
+    canonical universe, or when the table doesn't exist.
+
+    Not user-scoped — these rows are public reads (the page renders them
+    to anonymous visitors). Service client used for read-side consistency
+    with how we write them.
+    """
+    if not USE_SUPABASE:
+        return []
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return []
+    try:
+        # Pull the last 30 days of snapshots for this symbol; pick the
+        # most recent row per horizon. Cheap because the index hits
+        # (symbol, snapshot_date DESC).
+        res = (
+            _service_client().table("symbol_snapshots")
+            .select("*")
+            .eq("symbol", sym)
+            .order("snapshot_date", desc=True)
+            .limit(50)
+            .execute()
+        )
+        rows = res.data or []
+    except Exception as exc:
+        # Table might not exist yet (migration 0011 not applied). Return
+        # empty so the page degrades gracefully — visible sections just
+        # render the latest user prediction instead.
+        logger.warning(
+            "get_latest_symbol_snapshots(%s) failed (migration 0011 may "
+            "not be applied yet): %s", sym, exc,
+        )
+        return []
+
+    # Pick the freshest row per horizon. Iterate newest-first; first
+    # occurrence wins.
+    seen: set[str] = set()
+    out: list[dict] = []
+    for r in rows:
+        h = r.get("horizon")
+        if not h or h in seen:
+            continue
+        seen.add(h)
+        out.append(r)
+    # Sort by horizon priority order so the page renders 3d → 1y in a
+    # stable sequence regardless of which snapshots actually exist.
+    horizon_order = {"3d": 0, "1w": 1, "1m": 2, "1q": 3, "1y": 4}
+    out.sort(key=lambda r: horizon_order.get(r.get("horizon") or "", 99))
+    return out
+
+
+def upsert_symbol_snapshot(snapshot: dict) -> None:
+    """Idempotent insert into symbol_snapshots — overwrite when (symbol,
+    snapshot_date, horizon) already exists. Service-role write per the
+    migration's RLS policy."""
+    if not USE_SUPABASE:
+        return
+    try:
+        _service_client().table("symbol_snapshots").upsert(
+            snapshot,
+            on_conflict="symbol,snapshot_date,horizon",
+        ).execute()
+    except Exception as exc:
+        logger.exception(
+            "upsert_symbol_snapshot failed for %s/%s/%s: %s",
+            snapshot.get("symbol"),
+            snapshot.get("snapshot_date"),
+            snapshot.get("horizon"),
+            exc,
+        )
+        raise
+
+
 def _supabase_prediction_counts(public_only: bool = False) -> dict:
     """
     Live counters pulled directly from the Supabase predictions table.

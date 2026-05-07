@@ -3426,6 +3426,131 @@ def stock_quote(symbol: str) -> Dict[str, Any]:
     return payload
 
 
+# Per-symbol page aggregator. Backs the SEO-driven /stock/[symbol]
+# pages — single round-trip read returning everything the page needs:
+# quote + 1y price history, latest model snapshot per horizon, news,
+# earnings calendar, recommendation trends, technicals, and the
+# model's track record on this ticker.
+#
+# Cache key: per-symbol; refreshed at most every 10 minutes. Page is
+# ISR-rendered hourly upstream so this cache mostly matters for
+# repeated server-side calls during a single deploy.
+_STOCK_PAGE_CACHE: Dict[str, Any] = {}
+_STOCK_PAGE_TTL_SECONDS = 600   # 10 min
+
+
+@app.get("/api/stock/{symbol}")
+def stock_page(symbol: str) -> Dict[str, Any]:
+    """
+    Aggregator endpoint backing /stock/[symbol] SEO pages.
+
+    Returns a kitchen-sink payload: quote + price history + latest
+    model snapshots + Finnhub news/earnings/recs + technicals
+    (RSI/MACD/SMA/vol) + the model's per-symbol track record + a
+    page of recent public-ledger predictions on the ticker.
+
+    Each section degrades independently — when Finnhub is unconfigured
+    or returns nothing, the news/earnings/recs blocks come back empty
+    instead of failing the whole response. Same for snapshots (table
+    might not be populated yet) and predictions (anonymous visitors
+    on a thinly-predicted ticker should still get the quote).
+    """
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return {"error": "missing_symbol", "symbol": ""}
+
+    cached = _STOCK_PAGE_CACHE.get(sym)
+    if cached is not None:
+        payload, ts = cached
+        if (datetime.utcnow() - ts).total_seconds() < _STOCK_PAGE_TTL_SECONDS:
+            return payload
+
+    # ── 1. Quote + 1y price history (existing /api/quote logic). ────────────
+    # Reuse the function rather than HTTP-call ourselves — same Python
+    # process, no need for the round-trip.
+    quote = stock_quote(sym)
+    if isinstance(quote, dict) and quote.get("error"):
+        # Quote-side error is still survivable — quote will be {}
+        # in the payload and the page will hide the hero strip's
+        # data fields. But log it.
+        print(f"[stock_page {sym}] quote returned error: {quote.get('error')}")
+        quote = {"symbol": sym, "error": quote.get("error")}
+
+    price_history = quote.get("price_history") or []
+    closes = [p.get("price") for p in price_history if p.get("price") is not None]
+
+    # ── 2. Technicals from price history. ──────────────────────────────────
+    technicals: Dict[str, Any] = {}
+    try:
+        from technical_indicators import compute_all
+        technicals = compute_all([float(c) for c in closes])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[stock_page {sym}] technicals failed: {exc}")
+        technicals = {}
+
+    # ── 3. Finnhub: news + earnings + profile + rec trends. ────────────────
+    news_items: list = []
+    earnings_items: list = []
+    profile: Optional[Dict[str, Any]] = None
+    rec_trends: list = []
+    try:
+        from finnhub_client import (
+            get_company_news,
+            get_earnings_calendar,
+            get_company_profile,
+            get_recommendation_trends,
+        )
+        # asdict-style serialization — Finnhub helpers return dataclasses.
+        news_items = [n.__dict__ for n in get_company_news(sym, days_back=10)[:15]]
+        earnings_items = [e.__dict__ for e in get_earnings_calendar(sym)]
+        prof = get_company_profile(sym)
+        if prof is not None:
+            profile = prof.__dict__
+        rec_trends = get_recommendation_trends(sym)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[stock_page {sym}] finnhub fetch failed: {exc}")
+
+    # ── 4. Latest nightly snapshots from symbol_snapshots. ─────────────────
+    snapshots: list = []
+    try:
+        from db import get_latest_symbol_snapshots
+        snapshots = get_latest_symbol_snapshots(sym)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[stock_page {sym}] snapshots fetch failed: {exc}")
+
+    # ── 5. Track record on this ticker. ────────────────────────────────────
+    track_record: Dict[str, Any] = {}
+    try:
+        from db import get_symbol_track_record
+        track_record = get_symbol_track_record(sym)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[stock_page {sym}] track record fetch failed: {exc}")
+
+    # ── 6. Recent predictions on this ticker (public ledger). ──────────────
+    predictions: list = []
+    try:
+        from db import get_symbol_predictions
+        predictions = get_symbol_predictions(sym, limit=25, offset=0)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[stock_page {sym}] predictions fetch failed: {exc}")
+
+    payload = _json_safe({
+        "symbol":                sym,
+        "generated_at":          datetime.utcnow().isoformat() + "Z",
+        "quote":                 quote,
+        "profile":               profile,
+        "technicals":            technicals,
+        "snapshots":             snapshots,
+        "news":                  news_items,
+        "earnings":              earnings_items,
+        "recommendation_trends": rec_trends,
+        "track_record":          track_record,
+        "predictions":           predictions,
+    })
+    _STOCK_PAGE_CACHE[sym] = (payload, datetime.utcnow())
+    return payload
+
+
 @app.get("/api/predict/{symbol}/conviction-history")
 def conviction_history(symbol: str, days: int = 14) -> Dict[str, Any]:
     """
