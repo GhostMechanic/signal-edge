@@ -183,7 +183,21 @@ def refresh_universe() -> dict:
 
 # ── Fallback S&P 500 list (top ~100 by market cap) ───────────────────────────
 def _get_sp500_fallback() -> list:
-    """Minimal S&P 500 fallback if Wikipedia is unavailable."""
+    """Minimal S&P 500 fallback if Wikipedia is unavailable.
+
+    NOTE: this is NOT the full 500-ticker list — it's a curated subset
+    of the largest names plus commonly-queried mid-caps. Production
+    should hit `_fetch_sp500_wiki()` first and only fall back here on
+    network failure. Missing tickers here cause silent off-universe
+    rejections on perfectly valid S&P 500 names. When you notice a
+    legit S&P 500 ticker getting trade_pass_reason=symbol_not_in_universe
+    in the logs, add it to this list with a brief comment.
+
+    Manual additions over the curated baseline:
+      • EBAY (eBay) — surfaced when an EBAY 1-year +52% prediction
+        got rejected as off-universe despite EBAY being a current
+        S&P 500 constituent.
+    """
     return [
         "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B","UNH","LLY",
         "JPM","XOM","V","AVGO","PG","MA","COST","HD","ABBV","MRK","CVX","ADBE",
@@ -195,4 +209,6 @@ def _get_sp500_fallback() -> list:
         "GD","NOC","LMT","USB","PNC","TFC","EMR","ETN","APD","ECL","HCA","MCK",
         "PSA","CTAS","EW","KLAC","CDNS","SNPS","ROST","ORLY","AUTO","FAST","ODFL",
         "VRSK","CPRT","PAYX","BIIB","ILMN","AMGN","IDXX","DXCM","IQV","DHI","LEN",
+        # Manually curated additions — see comment block above.
+        "EBAY","ORCL",
     ]
