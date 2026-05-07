@@ -920,7 +920,17 @@ def ensure_user_paper_portfolio(user_id: Optional[str] = None) -> str:
             "ensure_user_paper_portfolio requires Supabase mode."
         )
     uid = _current_user_id(user_id)
-    c = _client()
+    # Service client + explicit user_id filter. The cached anon
+    # `_client()` has no per-request JWT, so the SELECT here returns
+    # zero rows even when a portfolio exists, and the fallback INSERT
+    # fails with RLS error 42501 ("new row violates row-level security
+    # policy for table 'paper_portfolios'") on any first-time trader.
+    # The 0001 migration has a profile-creation trigger that should
+    # auto-insert, but in dev / older accounts we still need a
+    # defensive idempotent insert path that can write through. Same
+    # RLS-vs-anon pattern as insert_prediction (task #28) and the
+    # trade-open lookups (just-fixed task).
+    c = _service_client()
     res = c.table("paper_portfolios").select("user_id").eq("user_id", uid).execute()
     if not (res.data or []):
         try:
