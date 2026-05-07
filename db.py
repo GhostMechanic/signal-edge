@@ -1153,22 +1153,32 @@ def open_user_paper_trade(
         )
 
     uid = ensure_user_paper_portfolio(user_id)
-    c = _client()
+    # Service client + explicit user_id filter — same pattern as the
+    # options path. The anon `_client()` cached at module level has no
+    # per-request JWT, so RLS only lets it see is_public_ledger=true
+    # rows; freshly-saved predictions reported as "not found" even
+    # when they exist in Supabase. Filtering by user_id preserves the
+    # "users can only act on their own predictions" guarantee.
+    c = _service_client()
 
     # 1. Fetch the prediction's persisted trade plan.
     pred_res = (
         c.table("predictions")
          .select(
              "id, symbol, direction, horizon, confidence, "
-             "entry_price, stop_price, target_price, predicted_return"
+             "entry_price, stop_price, target_price, predicted_return, user_id"
          )
          .eq("id", prediction_id)
-         .single()
+         .eq("user_id", uid)
+         .maybe_single()
          .execute()
     )
     pred = pred_res.data
     if not pred:
-        raise ValueError(f"prediction not found: {prediction_id}")
+        raise ValueError(
+            f"prediction not found: {prediction_id} (or it belongs to a "
+            "different account)"
+        )
 
     symbol = (pred.get("symbol") or "").upper().strip()
     if not symbol:
@@ -1491,19 +1501,33 @@ def open_user_paper_option_trade(
         )
 
     uid = ensure_user_paper_portfolio(user_id)
-    c = _client()
+    # Service client + explicit user_id filter. The cached anon
+    # `_client()` has no per-request JWT attached, so RLS only lets it
+    # see is_public_ledger=true rows — any fresh prediction whose ledger
+    # bit hasn't published yet (or was withheld for any reason) reports
+    # as "prediction not found" on the trade flow even when the row
+    # absolutely exists in Supabase. Same RLS-vs-anon-client class of
+    # bug as insert_prediction (task #28). Filter by user_id so we
+    # preserve the security property the RLS check was giving us:
+    # users can only open paper trades against their own predictions,
+    # never against another account's.
+    c = _service_client()
 
     # 1. Prediction + strategy lookup
     pred_res = (
         c.table("predictions")
-         .select("id, symbol, horizon, options_strategy")
+         .select("id, symbol, horizon, options_strategy, user_id")
          .eq("id", prediction_id)
-         .single()
+         .eq("user_id", uid)
+         .maybe_single()
          .execute()
     )
     pred = pred_res.data
     if not pred:
-        raise ValueError(f"prediction not found: {prediction_id}")
+        raise ValueError(
+            f"prediction not found: {prediction_id} (or it belongs to a "
+            "different account)"
+        )
     symbol = (pred.get("symbol") or "").upper().strip()
     if not symbol:
         raise ValueError("prediction has no symbol")
