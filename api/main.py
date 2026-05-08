@@ -3401,11 +3401,15 @@ def stock_quote(symbol: str) -> Dict[str, Any]:
         except (TypeError, ValueError):
             return v
 
-    # 1y of daily closes — gives the targets-on-price chart enough
-    # context to show meaningful trend without dwarfing the targets.
+    # 10y of daily OHLC + volume — gives the premium chart enough
+    # depth to show real long-term context, full candle support, and
+    # enough volume data for VWAP/volume-pane indicators. yfinance
+    # returns whatever's available for shorter-history stocks (recent
+    # IPOs); we don't pad. Pre-fix: 1y close-only — enough for the
+    # legacy SVG sparkline but not for premium exploration.
     price_history = []
     try:
-        df = fetch_stock_data(sym, period="1y")
+        df = fetch_stock_data(sym, period="10y")
         if df is not None and "Close" in df.columns and len(df) > 0:
             for idx, row in df.iterrows():
                 try:
@@ -3414,9 +3418,39 @@ def stock_quote(symbol: str) -> Dict[str, Any]:
                         if hasattr(idx, "strftime")
                         else str(idx)[:10]
                     )
-                    price = float(row["Close"])
-                    if price == price:  # not NaN
-                        price_history.append({"date": date_str, "price": round(price, 2)})
+                    close = float(row["Close"])
+                    if close != close:  # NaN
+                        continue
+                    bar = {
+                        "date": date_str,
+                        "price": round(close, 2),  # legacy field — line charts
+                        "close": round(close, 2),
+                    }
+                    # OHLC — only attach when present and valid. The
+                    # premium chart's candle mode needs all four; the
+                    # legacy chart and indicator math can fall back to
+                    # close-only when missing.
+                    for src_col, dst in (
+                        ("Open", "open"),
+                        ("High", "high"),
+                        ("Low", "low"),
+                    ):
+                        if src_col in df.columns:
+                            try:
+                                v = float(row[src_col])
+                                if v == v:
+                                    bar[dst] = round(v, 2)
+                            except Exception:
+                                pass
+                    # Volume — drives the volume pane + VWAP.
+                    if "Volume" in df.columns:
+                        try:
+                            vol = float(row["Volume"])
+                            if vol == vol and vol >= 0:
+                                bar["volume"] = int(vol)
+                        except Exception:
+                            pass
+                    price_history.append(bar)
                 except Exception:
                     continue
     except Exception as e:
