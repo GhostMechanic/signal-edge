@@ -2336,11 +2336,17 @@ def get_symbol_predictions(symbol: str, *, limit: int = 50, offset: int = 0) -> 
     if not sym:
         return []
     try:
+        # NB: `current_price` lives on the symbol_snapshots table, NOT
+        # on predictions. Including it here causes Postgres to error,
+        # the except below swallows it, and the API ships `[]` —
+        # which is exactly what was happening before this fix. The
+        # frontend doesn't need it: it derives price-at-issue from
+        # the price_history series anchored to created_at.
         res = (
             _service_client().table("predictions")
             .select(
                 "id, symbol, direction, horizon, predicted_return, "
-                "predicted_price, current_price, confidence, traded, "
+                "predicted_price, confidence, traded, "
                 "verdict, actual_return, actual_price, "
                 "rating_target, rating_checkpoint, rating_expiration, "
                 "created_at, horizon_ends_at, scored_at"
