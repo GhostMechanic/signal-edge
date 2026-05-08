@@ -639,7 +639,15 @@ def _last_close(symbol: str) -> float:
 
 def _intraday_bars_since(symbol: str, since: datetime) -> Optional[pd.DataFrame]:
     """Pull intraday 5-min bars from `since` to now. Falls back to daily if
-    intraday is unavailable. Returns a DataFrame with High/Low/Close columns."""
+    intraday is unavailable. Returns a DataFrame with High/Low/Close columns.
+
+    BUGFIX: yfinance's `start=` parameter only takes a date — it returns
+    bars from the START of that day (9:30 ET for US equities) regardless
+    of the time-of-day in `since`. Pre-fix, a trade opened at 12:23 PM
+    would scan against bars from 9:30–12:23 too, and any intraday low
+    earlier in the day would falsely trip the stop check and close the
+    trade as MISSED before it ever had time to play out. Now we filter
+    the returned frame to rows whose timestamp is strictly >= `since`."""
     try:
         # Intraday bars only available for ~60 days back.
         days_back = max(1, (datetime.now(timezone.utc) - since).days + 1)
@@ -651,6 +659,29 @@ def _intraday_bars_since(symbol: str, since: datetime) -> Optional[pd.DataFrame]
             hist = yf.Ticker(symbol).history(
                 start=since.date().isoformat(), interval="1d"
             )
+        if hist is None or hist.empty:
+            return None
+
+        # Filter to bars strictly after `since`. yfinance's index is a
+        # tz-aware DatetimeIndex (exchange-local for US equities).
+        # Normalise both sides to UTC for the comparison so the filter
+        # is robust regardless of which tz the index carries.
+        try:
+            idx = hist.index
+            if getattr(idx, "tz", None) is None:
+                # Naive index — treat as UTC.
+                idx_utc = idx.tz_localize("UTC")
+            else:
+                idx_utc = idx.tz_convert("UTC")
+            since_utc = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+            mask = idx_utc >= since_utc
+            hist = hist[mask]
+        except Exception as filter_exc:
+            # If filtering fails for any reason, log and fall through
+            # with the unfiltered frame — better to score with extra bars
+            # than to skip scoring entirely.
+            logger.warning("bars filter failed for %s: %s", symbol, filter_exc)
+
         if hist is None or hist.empty:
             return None
         return hist
