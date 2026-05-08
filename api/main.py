@@ -3488,27 +3488,70 @@ def stock_page(symbol: str) -> Dict[str, Any]:
         print(f"[stock_page {sym}] technicals failed: {exc}")
         technicals = {}
 
-    # ── 3. Finnhub: news + earnings + profile + rec trends. ────────────────
+    # ── 3. Finnhub: news + earnings + profile + metrics + rec trends. ─────
+    # Finnhub also doubles as a fundamentals fallback for Render — Yahoo
+    # rate-limits / blocks data-center IPs, so yfinance.info comes back
+    # nearly empty in production while it works fine on residential
+    # connections. Finnhub's free-tier /stock/metric covers most of the
+    # gaps (P/E, beta, 52W range, div yield, EPS, etc.).
     news_items: list = []
     earnings_items: list = []
     profile: Optional[Dict[str, Any]] = None
     rec_trends: list = []
+    metrics: Optional[Dict[str, Any]] = None
     try:
         from finnhub_client import (
             get_company_news,
             get_earnings_calendar,
             get_company_profile,
+            get_company_metrics,
             get_recommendation_trends,
         )
-        # asdict-style serialization — Finnhub helpers return dataclasses.
         news_items = [n.__dict__ for n in get_company_news(sym, days_back=10)[:15]]
         earnings_items = [e.__dict__ for e in get_earnings_calendar(sym)]
         prof = get_company_profile(sym)
         if prof is not None:
             profile = prof.__dict__
+        m = get_company_metrics(sym)
+        if m is not None:
+            metrics = m.__dict__
         rec_trends = get_recommendation_trends(sym)
     except Exception as exc:  # noqa: BLE001
         print(f"[stock_page {sym}] finnhub fetch failed: {exc}")
+
+    # ── 3b. Merge Finnhub fundamentals into the quote where yfinance
+    # came back empty. We treat yfinance values as authoritative when
+    # present; Finnhub only fills the holes. Same posture for the
+    # company name + sector + industry — yfinance "N/A" literals get
+    # replaced by Finnhub's profile values when available.
+    if isinstance(quote, dict):
+        if metrics:
+            yf_null_fields = {
+                "pe_ratio":            metrics.get("pe_ttm"),
+                "forward_pe":          metrics.get("forward_pe"),
+                "peg_ratio":           metrics.get("peg_ratio"),
+                "div_yield":           metrics.get("div_yield"),
+                "beta":                metrics.get("beta"),
+                "fifty_two_week_high": metrics.get("fifty_two_week_high"),
+                "fifty_two_week_low":  metrics.get("fifty_two_week_low"),
+                "avg_volume":          metrics.get("avg_volume_3m") or metrics.get("avg_volume_10d"),
+            }
+            for k, v in yf_null_fields.items():
+                if quote.get(k) is None and v is not None:
+                    quote[k] = v
+        if profile:
+            # Replace the literal "AAPL" / "N/A" placeholders that
+            # data_fetcher emits when yfinance returns empty.
+            if (quote.get("name") in (None, sym, "N/A")) and profile.get("name"):
+                quote["name"] = profile["name"]
+            if quote.get("industry") in (None, "N/A") and profile.get("industry"):
+                quote["industry"] = profile["industry"]
+            # Sector isn't in Finnhub's profile2 — leave as-is.
+            if quote.get("market_cap") is None and profile.get("market_cap") is not None:
+                # Finnhub returns market cap in millions; yfinance is raw dollars.
+                # Normalise to raw dollars for the frontend (which formats with
+                # `formatLargeNumber`).
+                quote["market_cap"] = float(profile["market_cap"]) * 1_000_000
 
     # ── 4. Latest nightly snapshots from symbol_snapshots. ─────────────────
     snapshots: list = []

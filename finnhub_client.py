@@ -247,6 +247,93 @@ def get_company_profile(symbol: str) -> Optional[CompanyProfile]:
     )
 
 
+@dataclass
+class CompanyMetrics:
+    """Subset of Finnhub /stock/metric `metric` block we surface on the page.
+
+    Used as a fallback when yfinance.info comes back empty (which is
+    perpetually the case on cloud-hosted runtimes like Render — Yahoo
+    rate-limits or blocks data-center IP ranges, while residential IPs
+    work fine).
+    """
+    pe_ttm: Optional[float]
+    forward_pe: Optional[float]
+    peg_ratio: Optional[float]
+    div_yield: Optional[float]
+    beta: Optional[float]
+    fifty_two_week_high: Optional[float]
+    fifty_two_week_low: Optional[float]
+    avg_volume_10d: Optional[float]
+    avg_volume_3m: Optional[float]
+    eps_ttm: Optional[float]
+    revenue_per_share_ttm: Optional[float]
+    book_value_per_share: Optional[float]
+    profit_margin: Optional[float]
+    return_on_equity: Optional[float]
+    debt_to_equity: Optional[float]
+    current_ratio: Optional[float]
+
+
+def get_company_metrics(symbol: str) -> Optional[CompanyMetrics]:
+    """Finnhub `/stock/metric?metric=all` — the financial-fundamentals
+    block. Free-tier endpoint, cached aggressively (1 day).
+
+    Field name notes — Finnhub's `metric` dict uses period-suffixed
+    field names. We pick canonical keys and tolerate the API's
+    occasional renames.
+    """
+    if not _ensure_key():
+        return None
+
+    raw = _fetch_with_cache(
+        endpoint="/stock/metric",
+        params={"symbol": symbol.upper(), "metric": "all"},
+        cache_key=f"metrics_{symbol.upper()}",
+        ttl_seconds=60 * 60 * 24,  # 1 day
+    )
+    if not isinstance(raw, dict):
+        return None
+    metric = raw.get("metric") or {}
+    if not isinstance(metric, dict):
+        return None
+
+    def _pick(*keys: str) -> Optional[float]:
+        """Try multiple Finnhub field names — `metric` schema has
+        evolved and different names appear for the same concept
+        across plan tiers."""
+        for k in keys:
+            v = metric.get(k)
+            f = _safe_float(v)
+            if f is not None:
+                return f
+        return None
+
+    return CompanyMetrics(
+        pe_ttm                = _pick("peTTM", "peExclExtraTTM", "peNormalizedAnnual"),
+        forward_pe            = _pick("forwardPE", "peNormalizedAnnual"),
+        peg_ratio             = _pick("pegRatio"),
+        # Finnhub returns yield as a percentage already (1.45 = 1.45%).
+        # Don't multiply.
+        div_yield             = _pick(
+            "currentDividendYieldTTM",
+            "dividendYieldIndicatedAnnual",
+            "dividendYield5Y",
+        ),
+        beta                  = _pick("beta"),
+        fifty_two_week_high   = _pick("52WeekHigh"),
+        fifty_two_week_low    = _pick("52WeekLow"),
+        avg_volume_10d        = _pick("10DayAverageTradingVolume"),
+        avg_volume_3m         = _pick("3MonthAverageTradingVolume"),
+        eps_ttm               = _pick("epsTTM", "epsNormalizedAnnual"),
+        revenue_per_share_ttm = _pick("revenuePerShareTTM"),
+        book_value_per_share  = _pick("bookValuePerShareAnnual", "tangibleBookValuePerShareAnnual"),
+        profit_margin         = _pick("netProfitMarginTTM", "netProfitMargin5Y"),
+        return_on_equity      = _pick("roeTTM", "roeRfy"),
+        debt_to_equity        = _pick("totalDebt/totalEquityAnnual", "longTermDebt/equityAnnual"),
+        current_ratio         = _pick("currentRatioAnnual", "currentRatioQuarterly"),
+    )
+
+
 def get_recommendation_trends(symbol: str) -> list[dict]:
     """Analyst recommendation distribution (strongBuy / buy / hold / sell / strongSell)
     over time. One row per month, newest first. Free-tier endpoint.
