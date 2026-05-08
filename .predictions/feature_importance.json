@@ -13,10 +13,10 @@
       "total_appearances": 4280
     },
     "ret_63d": {
-      "cumulative_score": 5.011905000000008,
-      "correct_count": 1585,
-      "wrong_count": 1353,
-      "total_appearances": 2938
+      "cumulative_score": 5.061905000000005,
+      "correct_count": 1599,
+      "wrong_count": 1379,
+      "total_appearances": 2978
     },
     "roc_60d": {
       "cumulative_score": 6.610560000000015,
@@ -31,10 +31,10 @@
       "total_appearances": 710
     },
     "ma50_200_xover": {
-      "cumulative_score": 12.036570000000083,
+      "cumulative_score": 11.99657000000008,
       "correct_count": 3254,
-      "wrong_count": 1792,
-      "total_appearances": 5046
+      "wrong_count": 1796,
+      "total_appearances": 5050
     },
     "regime_vix_norm": {
       "cumulative_score": 3.3759849999999982,
@@ -151,10 +151,10 @@
       "total_appearances": 545
     },
     "ma20_ratio": {
-      "cumulative_score": 0.3474100000000002,
-      "correct_count": 130,
-      "wrong_count": 98,
-      "total_appearances": 228
+      "cumulative_score": 0.39741000000000026,
+      "correct_count": 144,
+      "wrong_count": 122,
+      "total_appearances": 266
     },
     "earnings_proxy_cos": {
       "cumulative_score": 0.5487099999999989,
@@ -175,10 +175,10 @@
       "total_appearances": 1199
     },
     "ma20_50_xover": {
-      "cumulative_score": 2.1193450000000027,
-      "correct_count": 767,
-      "wrong_count": 543,
-      "total_appearances": 1310
+      "cumulative_score": 2.0893450000000025,
+      "correct_count": 769,
+      "wrong_count": 547,
+      "total_appearances": 1316
     },
     "autocorr_10d": {
       "cumulative_score": 7.4645799999999625,
@@ -241,16 +241,16 @@
       "total_appearances": 1271
     },
     "ma100_ratio": {
-      "cumulative_score": 2.2484599999999997,
-      "correct_count": 1123,
-      "wrong_count": 1012,
-      "total_appearances": 2135
+      "cumulative_score": 2.1684600000000005,
+      "correct_count": 1127,
+      "wrong_count": 1022,
+      "total_appearances": 2149
     },
     "macd_sig": {
-      "cumulative_score": 2.7257599999999944,
+      "cumulative_score": 2.7157599999999946,
       "correct_count": 742,
-      "wrong_count": 502,
-      "total_appearances": 1244
+      "wrong_count": 504,
+      "total_appearances": 1246
     },
     "regime_mom63": {
       "cumulative_score": 2.1020399999999957,
@@ -259,10 +259,10 @@
       "total_appearances": 1253
     },
     "ma200_ratio": {
-      "cumulative_score": 3.615724999999987,
-      "correct_count": 1679,
-      "wrong_count": 1399,
-      "total_appearances": 3078
+      "cumulative_score": 3.5457249999999867,
+      "correct_count": 1681,
+      "wrong_count": 1405,
+      "total_appearances": 3086
     },
     "regime_spy_vs_200ma": {
       "cumulative_score": 7.101079999999949,
@@ -277,10 +277,10 @@
       "total_appearances": 1638
     },
     "macd_norm": {
-      "cumulative_score": 1.4238100000000005,
+      "cumulative_score": 1.4038100000000004,
       "correct_count": 587,
-      "wrong_count": 540,
-      "total_appearances": 1127
+      "wrong_count": 542,
+      "total_appearances": 1129
     },
     "ichi_price_vs_cloud": {
       "cumulative_score": 1.406904999999998,
@@ -325,10 +325,10 @@
       "total_appearances": 185
     },
     "ret_21d": {
-      "cumulative_score": 1.4952800000000026,
-      "correct_count": 547,
-      "wrong_count": 404,
-      "total_appearances": 951
+      "cumulative_score": 1.7352800000000042,
+      "correct_count": 563,
+      "wrong_count": 428,
+      "total_appearances": 991
     },
     "hl_range_5d_avg": {
       "cumulative_score": 1.6860599999999966,
@@ -337,10 +337,10 @@
       "total_appearances": 1292
     },
     "ret_10d": {
-      "cumulative_score": 0.18404000000000015,
-      "correct_count": 157,
-      "wrong_count": 198,
-      "total_appearances": 355
+      "cumulative_score": 0.38404000000000016,
+      "correct_count": 173,
+      "wrong_count": 224,
+      "total_appearances": 397
     },
     "spy_ma20_ratio": {
       "cumulative_score": 0.37647000000000114,
@@ -349,16 +349,16 @@
       "total_appearances": 400
     },
     "ma5_ratio": {
-      "cumulative_score": 0.39761499999999983,
-      "correct_count": 131,
-      "wrong_count": 15,
-      "total_appearances": 146
+      "cumulative_score": 0.6676150000000001,
+      "correct_count": 145,
+      "wrong_count": 31,
+      "total_appearances": 176
     },
     "ma50_ratio": {
-      "cumulative_score": 1.9950149999999969,
-      "correct_count": 513,
-      "wrong_count": 295,
-      "total_appearances": 808
+      "cumulative_score": 2.0650149999999963,
+      "correct_count": 525,
+      "wrong_count": 307,
+      "total_appearances": 832
     },
     "bb_bw": {
       "cumulative_score": 0.8400649999999998,
@@ -385,10 +385,10 @@
       "total_appearances": 309
     },
     "ret_5d": {
-      "cumulative_score": 0.6725900000000014,
-      "correct_count": 213,
-      "wrong_count": 32,
-      "total_appearances": 245
+      "cumulative_score": 1.0925900000000015,
+      "correct_count": 229,
+      "wrong_count": 54,
+      "total_appearances": 283
     },
     "sent_yield_curve_spread": {
       "cumulative_score": 19.826884999999923,
@@ -415,10 +415,10 @@
       "total_appearances": 161
     },
     "ret_2d": {
-      "cumulative_score": 0.4120899999999995,
-      "correct_count": 98,
-      "wrong_count": 0,
-      "total_appearances": 98
+      "cumulative_score": 0.7320899999999987,
+      "correct_count": 112,
+      "wrong_count": 22,
+      "total_appearances": 134
     },
     "gap_down": {
       "cumulative_score": 0.28942999999999974,
@@ -445,10 +445,10 @@
       "total_appearances": 375
     },
     "ma5_20_xover": {
-      "cumulative_score": 0.6800700000000001,
-      "correct_count": 386,
-      "wrong_count": 332,
-      "total_appearances": 718
+      "cumulative_score": 0.7000700000000001,
+      "correct_count": 388,
+      "wrong_count": 334,
+      "total_appearances": 722
     },
     "vol_ratio_20": {
       "cumulative_score": 0.29552500000000054,
@@ -493,10 +493,10 @@
       "total_appearances": 665
     },
     "ma10_ratio": {
-      "cumulative_score": 0.13438000000000003,
-      "correct_count": 64,
-      "wrong_count": 102,
-      "total_appearances": 166
+      "cumulative_score": 0.20437999999999995,
+      "correct_count": 78,
+      "wrong_count": 124,
+      "total_appearances": 202
     },
     "stoch_d": {
       "cumulative_score": 0.01790499999999994,
@@ -541,10 +541,10 @@
       "total_appearances": 53
     },
     "ret_3d": {
-      "cumulative_score": 0.22101500000000002,
-      "correct_count": 75,
-      "wrong_count": 39,
-      "total_appearances": 114
+      "cumulative_score": 0.7110149999999994,
+      "correct_count": 89,
+      "wrong_count": 57,
+      "total_appearances": 146
     },
     "high_fear": {
       "cumulative_score": -0.047199999999999964,
@@ -601,10 +601,10 @@
       "total_appearances": 46
     },
     "ret_1d": {
-      "cumulative_score": 0.011800000000000001,
-      "correct_count": 8,
-      "wrong_count": 10,
-      "total_appearances": 18
+      "cumulative_score": -0.28819999999999996,
+      "correct_count": 14,
+      "wrong_count": 28,
+      "total_appearances": 42
     },
     "upper_wick_ratio": {
       "cumulative_score": 0.02385,
@@ -613,6 +613,6 @@
       "total_appearances": 9
     }
   },
-  "update_count": 49,
-  "last_updated": "2026-04-23T21:06:34.230791"
+  "update_count": 51,
+  "last_updated": "2026-05-08T11:20:41.600874"
 }

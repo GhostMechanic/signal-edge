@@ -2312,11 +2312,23 @@ def get_public_ledger(
 
 
 def get_symbol_predictions(symbol: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
-    """All public-ledger predictions for `symbol`, newest first.
+    """Every prediction the model has made on `symbol`, newest first.
 
-    Powers the "All predictions on this stock" table on /stock/[symbol].
-    Public-tier read — only returns predictions where is_public_ledger=true,
-    which already filters off-universe + thin-data names.
+    Powers the per-symbol track record on /stock/[symbol]. Pre-fix this
+    function filtered by is_public_ledger=true, which is the right
+    filter for the SITE-WIDE public ledger (de-spams when a single user
+    re-asks the same ticker repeatedly) but the wrong filter for a
+    per-stock track record. Two reasons:
+      • The dedupe rule "no (user, symbol, horizon) within last hour"
+        kills most repeat asks even though they're real model outputs.
+      • The same-day insert dedupe kills further re-asks.
+    The result was AAPL showing 1/1 even though the model has made
+    many AAPL calls. We want every call here — the model's true
+    historical performance on this ticker, regardless of who asked.
+
+    Uses service_role to bypass RLS (anon would only see public-
+    ledger rows). Strips user_id from the response so we don't leak
+    which users asked which predictions across the boundary.
     """
     if not USE_SUPABASE:
         return []
@@ -2324,11 +2336,8 @@ def get_symbol_predictions(symbol: str, *, limit: int = 50, offset: int = 0) -> 
     if not sym:
         return []
     try:
-        # Anon-fine here: is_public_ledger=true is what we want, and
-        # that's exactly what anon RLS lets through. No service bypass
-        # needed — these rows are intentionally public.
         res = (
-            _client().table("predictions")
+            _service_client().table("predictions")
             .select(
                 "id, symbol, direction, horizon, predicted_return, "
                 "predicted_price, current_price, confidence, traded, "
@@ -2337,7 +2346,6 @@ def get_symbol_predictions(symbol: str, *, limit: int = 50, offset: int = 0) -> 
                 "created_at, horizon_ends_at, scored_at"
             )
             .eq("symbol", sym)
-            .eq("is_public_ledger", True)
             .order("created_at", desc=True)
             .range(offset, offset + max(0, limit - 1))
             .execute()
@@ -2391,11 +2399,13 @@ def get_symbol_track_record(symbol: str) -> dict:
     if not sym:
         return empty
     try:
+        # Service-role + no is_public_ledger filter — see the rationale
+        # in get_symbol_predictions. We want the model's TRUE record on
+        # this ticker, not just the de-spammed public-ledger subset.
         res = (
-            _client().table("predictions")
+            _service_client().table("predictions")
             .select("verdict, traded, actual_return")
             .eq("symbol", sym)
-            .eq("is_public_ledger", True)
             .execute()
         )
         rows = res.data or []
