@@ -3225,6 +3225,46 @@ def predict_symbol(
             traceback.print_exc()
             trade_plan = None
 
+        # Compute enrichments — earnings catalysts, news sentiment,
+        # prior calls on this ticker, volume context, macro events
+        # within the prediction window, and risk flags. Each section
+        # degrades cleanly when its inputs are missing so a single
+        # Finnhub timeout can't take the predict response down.
+        try:
+            from predict_enrichment import enrich_prediction
+            # Longest horizon in days — used to scope earnings + macro
+            # events to the prediction's window.
+            longest_horizon_days = max(
+                (
+                    _HORIZON_DAYS.get(h, 0)
+                    for h, hd in predictions.items()
+                    if isinstance(hd, dict) and not hd.get("skipped")
+                ),
+                default=365,
+            )
+            # Pull a fresh quote-info read for the enrichment so we don't
+            # depend on whichever local var happened to land in this
+            # try-block. data_fetcher caches under the hood.
+            try:
+                from data_fetcher import fetch_stock_info as _fsi_for_enrich
+                _enrich_quote = _fsi_for_enrich(sym) or {}
+            except Exception:
+                _enrich_quote = {}
+            # Carry the live current_price into the enrichment quote so
+            # 52W-positioning + risk flags compute against today's mark
+            # rather than yfinance's cached snapshot.
+            if current_price is not None:
+                _enrich_quote["current_price"] = current_price
+            enrichment_payload = enrich_prediction(
+                symbol=sym,
+                horizon_days_max=longest_horizon_days or 365,
+                quote_info=_enrich_quote,
+                price_history_30d=price_30d,
+            ).to_dict()
+        except Exception as e_enrich:
+            print(f"[predict {sym}] enrichment failed (non-fatal): {e_enrich}")
+            enrichment_payload = {}
+
         payload = {
             "symbol":            sym,
             "current_price":     current_price,
@@ -3234,6 +3274,8 @@ def predict_symbol(
             "trade_plan":        trade_plan,
             "options_strategies": options_strategies,
             "model_age_days":    model_age_days,
+            # Enrichment block — see predict_enrichment.py.
+            **enrichment_payload,
             "generated_at":      datetime.utcnow().isoformat() + "Z",
             # Same fresh-read pattern as the log_prediction_v2 call
             # above — the response payload reflects the current
