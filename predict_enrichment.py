@@ -46,6 +46,17 @@ class NextEarnings:
 
 
 @dataclass
+class RecentEarning:
+    """Past earnings date inside the price_30d window — used by the
+    chart to render a vertical marker so the user can see exactly
+    which day the price reacted to the most recent print."""
+    date: str
+    eps_estimate: Optional[float]
+    eps_actual: Optional[float]
+    surprise_pct: Optional[float]   # (actual - est) / |est| * 100
+
+
+@dataclass
 class NewsSentiment:
     score: float          # -1.0 (very bearish) → +1.0 (very bullish)
     label: str            # "bullish" | "slightly bullish" | "neutral" | "slightly bearish" | "bearish"
@@ -90,6 +101,7 @@ class RiskFlag:
 @dataclass
 class PredictEnrichment:
     next_earnings: Optional[NextEarnings] = None
+    recent_earnings: list[RecentEarning] = field(default_factory=list)
     news_sentiment: Optional[NewsSentiment] = None
     prior_calls: Optional[PriorCallSummary] = None
     volume_context: Optional[VolumeContext] = None
@@ -98,12 +110,13 @@ class PredictEnrichment:
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {}
-        if self.next_earnings:  out["next_earnings"]  = asdict(self.next_earnings)
-        if self.news_sentiment: out["news_sentiment"] = asdict(self.news_sentiment)
-        if self.prior_calls:    out["prior_calls"]    = asdict(self.prior_calls)
-        if self.volume_context: out["volume_context"] = asdict(self.volume_context)
-        if self.macro_events:   out["macro_events"]   = [asdict(e) for e in self.macro_events]
-        if self.risk_flags:     out["risk_flags"]     = [asdict(f) for f in self.risk_flags]
+        if self.next_earnings:    out["next_earnings"]    = asdict(self.next_earnings)
+        if self.recent_earnings:  out["recent_earnings"]  = [asdict(e) for e in self.recent_earnings]
+        if self.news_sentiment:   out["news_sentiment"]   = asdict(self.news_sentiment)
+        if self.prior_calls:      out["prior_calls"]      = asdict(self.prior_calls)
+        if self.volume_context:   out["volume_context"]   = asdict(self.volume_context)
+        if self.macro_events:     out["macro_events"]     = [asdict(e) for e in self.macro_events]
+        if self.risk_flags:       out["risk_flags"]       = [asdict(f) for f in self.risk_flags]
         return out
 
 
@@ -137,11 +150,19 @@ def enrich_prediction(
     if not sym:
         return out
 
-    # ── Earnings ────────────────────────────────────────────────────────
+    # ── Earnings (next + recent past) ───────────────────────────────────
     try:
         out.next_earnings = _next_earnings(sym, horizon_days_max)
     except Exception as exc:  # noqa: BLE001
         logger.warning("enrich %s: next_earnings failed: %s", sym, exc)
+    try:
+        # Past earnings inside the chart's 30-day historical window.
+        # Used by the frontend to render vertical markers on the
+        # historical line so the user can see the day the price
+        # reacted to the print.
+        out.recent_earnings = _recent_earnings(sym, days_back=45)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("enrich %s: recent_earnings failed: %s", sym, exc)
 
     # ── News sentiment ──────────────────────────────────────────────────
     try:
@@ -213,6 +234,49 @@ def _next_earnings(symbol: str, horizon_days_max: int) -> Optional[NextEarnings]
         hour=soonest_row.hour,
         eps_estimate=soonest_row.eps_estimate,
     )
+
+
+def _recent_earnings(symbol: str, *, days_back: int = 45) -> list[RecentEarning]:
+    """Past earnings dates within the last `days_back` days. Frontend
+    uses these to render vertical markers on the chart's historical
+    line — lets the user spot 'oh that's the day they reported and
+    the stock dropped 8%'.
+
+    Returns at most 2 events (one quarter is normal; two would be a
+    long batch). Surprise % when both estimate + actual are available.
+    """
+    try:
+        from finnhub_client import get_earnings_calendar
+    except Exception:
+        return []
+    rows = get_earnings_calendar(
+        symbol,
+        days_forward=0,
+        days_backward=days_back,
+    )
+    if not rows:
+        return []
+    today = date.today()
+    out: list[RecentEarning] = []
+    for r in rows:
+        try:
+            d = date.fromisoformat((r.date or "")[:10])
+        except (ValueError, TypeError):
+            continue
+        if d > today or (today - d).days > days_back:
+            continue
+        surprise = None
+        if r.eps_actual is not None and r.eps_estimate is not None:
+            denom = abs(r.eps_estimate) if r.eps_estimate != 0 else 0.01
+            surprise = round((r.eps_actual - r.eps_estimate) / denom * 100, 2)
+        out.append(RecentEarning(
+            date=d.isoformat(),
+            eps_estimate=r.eps_estimate,
+            eps_actual=r.eps_actual,
+            surprise_pct=surprise,
+        ))
+    out.sort(key=lambda e: e.date, reverse=True)
+    return out[:2]
 
 
 # Simple keyword sentiment lexicon. Positive / negative leans drawn
