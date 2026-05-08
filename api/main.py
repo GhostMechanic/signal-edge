@@ -3438,11 +3438,37 @@ def stock_quote(symbol: str) -> Dict[str, Any]:
     if len(description) > 280:
         description = description[:277].rstrip() + "…"
 
+    # Sector fallback chain. yfinance is the primary, but it returns
+    # "N/A" or empty for many tickers (ETFs, ADRs, recently-relisted
+    # names). Treat the literal "N/A" string as missing AND fall back
+    # to Finnhub's company profile fields (industry / finnhubIndustry)
+    # so the page hero shows something meaningful instead of "N/A".
+    # Caught on RKLB (Rocket Lab) where yfinance returned empty but
+    # Finnhub had "Aerospace & Defense" cleanly.
+    raw_sector = (info.get("sector") or "").strip()
+    raw_industry = (info.get("industry") or "").strip()
+    if raw_sector.upper() in ("", "N/A"):
+        try:
+            from finnhub_client import get_company_profile
+            prof = get_company_profile(sym)
+            if prof and prof.industry:
+                # Finnhub's `finnhubIndustry` is closer to GICS sector
+                # than yfinance's industry field — use it as the sector
+                # fallback. The user-visible distinction between
+                # "sector" and "industry" doesn't matter here as much
+                # as having SOMETHING reasonable to show.
+                raw_sector = prof.industry
+        except Exception:
+            # Finnhub unconfigured / network blip — leave sector empty.
+            pass
+    if raw_industry.upper() in ("", "N/A"):
+        raw_industry = ""
+
     payload = {
         "symbol":         sym,
         "name":           info.get("name") or sym,
-        "sector":         info.get("sector") or None,
-        "industry":       info.get("industry") or None,
+        "sector":         raw_sector or None,
+        "industry":       raw_industry or None,
         "market_cap":     _clean(info.get("market_cap")),
         "pe_ratio":       _clean(info.get("pe_ratio")),
         "forward_pe":     _clean(fundamentals.get("forward_pe")),
