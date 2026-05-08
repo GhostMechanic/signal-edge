@@ -99,6 +99,21 @@ class RiskFlag:
 
 
 @dataclass
+class SectorRelative:
+    """How the symbol has performed against its sector ETF over the
+    last 30 days. Frames the model's call against the macro / sector
+    backdrop — outperforming the sector is meaningfully different
+    from "the whole sector is up."""
+    sector: str              # GICS-style label, e.g. "Technology"
+    etf_symbol: str          # e.g. "XLK"
+    days: int                # window we sampled (typically 30)
+    symbol_return_pct: float       # % return over the window
+    sector_return_pct: float       # % return over the window
+    delta_pp: float                # symbol - sector, in pp
+    label: str               # "outperforming" | "underperforming" | "in line"
+
+
+@dataclass
 class PredictEnrichment:
     next_earnings: Optional[NextEarnings] = None
     recent_earnings: list[RecentEarning] = field(default_factory=list)
@@ -107,6 +122,7 @@ class PredictEnrichment:
     volume_context: Optional[VolumeContext] = None
     macro_events: list[MacroEvent] = field(default_factory=list)
     risk_flags: list[RiskFlag] = field(default_factory=list)
+    sector_relative: Optional[SectorRelative] = None
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {}
@@ -117,6 +133,7 @@ class PredictEnrichment:
         if self.volume_context:   out["volume_context"]   = asdict(self.volume_context)
         if self.macro_events:     out["macro_events"]     = [asdict(e) for e in self.macro_events]
         if self.risk_flags:       out["risk_flags"]       = [asdict(f) for f in self.risk_flags]
+        if self.sector_relative:  out["sector_relative"]  = asdict(self.sector_relative)
         return out
 
 
@@ -193,6 +210,12 @@ def enrich_prediction(
         out.risk_flags = _risk_flags(quote_info)
     except Exception as exc:  # noqa: BLE001
         logger.warning("enrich %s: risk_flags failed: %s", sym, exc)
+
+    # ── Sector-relative context ─────────────────────────────────────────
+    try:
+        out.sector_relative = _sector_relative(sym, quote_info, price_history_30d)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("enrich %s: sector_relative failed: %s", sym, exc)
 
     return out
 
@@ -602,6 +625,106 @@ def _risk_flags(quote_info: Optional[dict]) -> list[RiskFlag]:
         ))
 
     return flags
+
+
+# GICS-style sector → SPDR sector ETF mapping. yfinance returns sector
+# labels in either GICS form ("Technology", "Health Care") or the
+# Yahoo-flavoured form ("Technology", "Healthcare", "Consumer
+# Defensive", "Consumer Cyclical"). We normalise both into the same
+# ETF lookup. Unknown / missing sectors fall through to None and the
+# signal is suppressed rather than rendering "Sector relative: ?".
+_SECTOR_TO_ETF = {
+    # Yahoo Finance variants
+    "Technology":              "XLK",
+    "Healthcare":              "XLV",
+    "Health Care":             "XLV",
+    "Financial Services":      "XLF",
+    "Financials":              "XLF",
+    "Consumer Cyclical":       "XLY",
+    "Consumer Discretionary":  "XLY",
+    "Consumer Defensive":      "XLP",
+    "Consumer Staples":        "XLP",
+    "Energy":                  "XLE",
+    "Utilities":               "XLU",
+    "Real Estate":             "XLRE",
+    "Basic Materials":         "XLB",
+    "Materials":               "XLB",
+    "Industrials":             "XLI",
+    "Communication Services":  "XLC",
+}
+
+
+def _sector_relative(
+    symbol: str,
+    quote_info: Optional[dict],
+    price_history_30d: Optional[list[dict]],
+) -> Optional[SectorRelative]:
+    """Compare the symbol's 30-day return against its sector ETF's 30d
+    return. Captures the 'is this name moving with its sector or
+    against it' read that's hard to get from individual fundamentals.
+    """
+    if not quote_info or not price_history_30d or len(price_history_30d) < 5:
+        return None
+    sector = quote_info.get("sector")
+    if not sector or not isinstance(sector, str) or sector == "N/A":
+        return None
+    etf = _SECTOR_TO_ETF.get(sector)
+    if not etf or etf.upper() == symbol.upper():
+        # Don't compare a sector ETF to itself.
+        return None
+
+    # Symbol's 30-day return — first valid → last valid close.
+    sym_first = None
+    sym_last = None
+    for p in price_history_30d:
+        if isinstance(p, dict) and isinstance(p.get("price"), (int, float)) and p["price"] > 0:
+            if sym_first is None:
+                sym_first = float(p["price"])
+            sym_last = float(p["price"])
+    if sym_first is None or sym_last is None or sym_first <= 0:
+        return None
+    sym_ret = ((sym_last - sym_first) / sym_first) * 100
+
+    # Fetch the ETF's same-window return. Cheap call — yfinance caches
+    # under the hood and a sector ETF gets queried often enough to be
+    # warm. Wrapped in try/except so a yfinance hiccup just suppresses
+    # this signal without nuking the rest of the enrichment.
+    try:
+        from data_fetcher import fetch_stock_data
+        df = fetch_stock_data(etf, period="2mo")
+    except Exception as exc:
+        logger.debug("sector_relative: fetch_stock_data(%s) failed: %s", etf, exc)
+        return None
+    if df is None or "Close" not in df.columns or len(df) < 5:
+        return None
+    closes = [float(c) for c in df["Close"].tolist() if c == c and c > 0]
+    if len(closes) < 5:
+        return None
+    # Match the window length to the symbol's price_history when we can.
+    days = min(len(closes), len(price_history_30d))
+    etf_first = closes[-days]
+    etf_last = closes[-1]
+    if etf_first <= 0:
+        return None
+    etf_ret = ((etf_last - etf_first) / etf_first) * 100
+
+    delta_pp = sym_ret - etf_ret
+    if abs(delta_pp) < 1.0:
+        label = "in line"
+    elif delta_pp > 0:
+        label = "outperforming"
+    else:
+        label = "underperforming"
+
+    return SectorRelative(
+        sector=sector,
+        etf_symbol=etf,
+        days=days,
+        symbol_return_pct=round(sym_ret, 2),
+        sector_return_pct=round(etf_ret, 2),
+        delta_pp=round(delta_pp, 2),
+        label=label,
+    )
 
 
 def _safe_float(v: Any) -> Optional[float]:
