@@ -3033,17 +3033,22 @@ def predict_symbol(
         # sense for established names like NFLX with 20+ years of
         # history).
         EXPECTED_HORIZONS = ["3 Day", "1 Week", "1 Month", "1 Quarter", "1 Year"]
+        # Pull the per-horizon skip-reason map populated by train()'s
+        # early-continue sites. When present, surface the real reason
+        # ("not enough labeled rows after the purge gap", "every base
+        # learner raised an exception", etc.) instead of generic copy.
+        skip_reasons_map = getattr(predictor, "skip_reasons", {}) or {}
         for h in EXPECTED_HORIZONS:
             if h not in predictions:
+                real_reason = skip_reasons_map.get(h)
                 predictions[h] = {
                     "skipped": True,
-                    "skip_reason": (
+                    "skip_reason": real_reason or (
                         "the model trained but couldn't ship this specific "
-                        "horizon — usually a label-coverage gap (the most "
-                        "recent ~horizon-length days can't be back-tested "
-                        "yet) or one of the ensemble members failing to "
-                        "converge on this window. shorter horizons on the "
-                        "same ticker often still work."
+                        "horizon and didn't capture a specific reason "
+                        "(probably an ensemble convergence issue on this "
+                        "window). other horizons on the same ticker often "
+                        "still work — try one."
                     ),
                 }
 

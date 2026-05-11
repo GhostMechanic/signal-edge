@@ -420,6 +420,11 @@ class StockPredictor:
         self.regime_cache   = None
         self.horizon_preds  = {}    # for multi-timeframe stacking
         self.model_perf     = {}    # horizon → per-model dir accuracy on val
+        # Per-horizon reason a training run was skipped. Populated at
+        # each early-continue site so the API layer can echo the real
+        # reason back to the user instead of a generic 'horizon not
+        # available' message. Cleared at the start of every train().
+        self.skip_reasons   = {}    # horizon → str
         self.is_trained     = False
         self.fundamentals   = None  # stored for prediction phase
         self.earnings_data  = None  # stored for earnings proximity checks
@@ -634,6 +639,12 @@ class StockPredictor:
         progress_callback = None,
     ) -> "StockPredictor":
 
+        # Reset per-horizon skip-reason map. We populate this at each
+        # early-continue site in the horizon loop below, then the API
+        # layer reads it when filling 'skipped' horizons so the user
+        # gets the real reason instead of generic copy.
+        self.skip_reasons = {}
+
         if len(df) < MIN_TRAIN:
             # Convert trading days to calendar years for a more
             # readable error. ~252 trading days per year.
@@ -784,7 +795,9 @@ class StockPredictor:
 
             # Skip horizon if not enough data for train or val
             if len(X_tr) < 50 or len(X_va) < 10:
-                _prog(f"[{horizon}] Skipped — not enough data ({len(X_tr)} train, {len(X_va)} val)")
+                msg = f"not enough labeled rows after the purge gap ({len(X_tr)} train / {len(X_va)} validation; need ≥50 / ≥10)"
+                _prog(f"[{horizon}] Skipped — {msg}")
+                self.skip_reasons[horizon] = msg
                 continue
 
             weights_tr = _make_sample_weights(len(X_tr))
@@ -978,6 +991,11 @@ class StockPredictor:
 
             # Guard: if ALL models failed somehow, skip this horizon
             if not members:
+                self.skip_reasons[horizon] = (
+                    "every base learner (XGBoost / LightGBM / Random Forest) "
+                    "raised an exception while fitting this window — usually a "
+                    "data-shape or convergence issue specific to the horizon"
+                )
                 continue
 
             # ── Walk-forward model selection (drop weak members) ─────────────
