@@ -3610,7 +3610,14 @@ def stock_page(symbol: str) -> Dict[str, Any]:
             get_recommendation_trends,
         )
         news_items = [n.__dict__ for n in get_company_news(sym, days_back=10)[:15]]
-        earnings_items = [e.__dict__ for e in get_earnings_calendar(sym)]
+        # 400 days backward to capture a full 4 quarters of past actuals.
+        # Default (90d) gave us 1 quarter — not enough for the
+        # 'Last 4 quarters' EPS surprise pattern on the stock page.
+        earnings_items = [
+            e.__dict__ for e in get_earnings_calendar(
+                sym, days_forward=60, days_backward=400,
+            )
+        ]
         prof = get_company_profile(sym)
         if prof is not None:
             profile = prof.__dict__
