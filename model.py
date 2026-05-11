@@ -429,7 +429,18 @@ class StockPredictor:
         self.fundamentals   = None  # stored for prediction phase
         self.earnings_data  = None  # stored for earnings proximity checks
         self.options_data   = None  # stored for options features
-        self._model_dir     = os.path.join(os.path.dirname(__file__), ".models")
+        # Where trained model weights persist between runs. Override
+        # via the MODEL_DIR env var on production so the cache lives
+        # on Render's mounted persistent disk (typically /var/models
+        # or similar) instead of the ephemeral source-code
+        # filesystem. Without the override, every deploy wipes the
+        # models — meaning every prediction post-deploy is a full
+        # 5-20 min retrain instead of a sub-second cache hit. The
+        # default keeps tests + dev mode happy on a vanilla checkout.
+        self._model_dir = os.environ.get(
+            "MODEL_DIR",
+            os.path.join(os.path.dirname(__file__), ".models"),
+        )
 
     # ── Model Persistence ───────────────────────────────────────────────────
 
