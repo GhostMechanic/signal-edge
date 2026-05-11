@@ -3022,15 +3022,29 @@ def predict_symbol(
             print(f"[predict {sym}] logging skipped: {e_log}")
             traceback.print_exc()
 
-        # Fill in any horizons predict() silently dropped (insufficient
-        # training data, all L1 members failed, etc.) so the frontend can
-        # show a clear "Not available" state for all 5 horizons.
+        # Fill in any horizons predict() silently dropped (label
+        # coverage, all L1 members failed convergence, calibration
+        # bailed, etc.) so the frontend can show a clear "Not
+        # available" state for all 5 horizons. The reason string is
+        # generic — predict() doesn't yet surface per-horizon failure
+        # reasons up the call stack — but the framing is now honest
+        # about the multiple possible causes instead of misdirecting
+        # toward 'insufficient training samples' (which makes no
+        # sense for established names like NFLX with 20+ years of
+        # history).
         EXPECTED_HORIZONS = ["3 Day", "1 Week", "1 Month", "1 Quarter", "1 Year"]
         for h in EXPECTED_HORIZONS:
             if h not in predictions:
                 predictions[h] = {
                     "skipped": True,
-                    "skip_reason": "Model didn't produce a prediction for this horizon (likely insufficient training samples).",
+                    "skip_reason": (
+                        "the model trained but couldn't ship this specific "
+                        "horizon — usually a label-coverage gap (the most "
+                        "recent ~horizon-length days can't be back-tested "
+                        "yet) or one of the ensemble members failing to "
+                        "converge on this window. shorter horizons on the "
+                        "same ticker often still work."
+                    ),
                 }
 
         # Stamp each horizon with its expiration date (today + N days) and

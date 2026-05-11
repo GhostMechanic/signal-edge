@@ -635,7 +635,19 @@ class StockPredictor:
     ) -> "StockPredictor":
 
         if len(df) < MIN_TRAIN:
-            raise ValueError(f"Need at least {MIN_TRAIN} trading days (got {len(df)}).")
+            # Convert trading days to calendar years for a more
+            # readable error. ~252 trading days per year.
+            avail_years = len(df) / 252.0
+            need_years = MIN_TRAIN / 252.0
+            raise ValueError(
+                f"not enough price history — model needs ~{need_years:.1f} "
+                f"years of data ({MIN_TRAIN} trading days) to train reliably, "
+                f"and this ticker only has ~{avail_years:.1f} years "
+                f"({len(df)} days). recently-IPO'd names and spin-offs "
+                f"(SNDK, KGS, ARM, etc.) usually need a year or two before "
+                f"the model can lock onto them. try a longer-tenured ticker "
+                f"like the parent company or a sector peer."
+            )
 
         # Try loading a cached model first (skip retraining if fresh enough)
         if self.load_model(max_age_hours=12):
