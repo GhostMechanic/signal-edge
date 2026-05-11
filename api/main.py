@@ -793,18 +793,25 @@ def open_user_paper_trade_endpoint(
         # before the helper runs. We do this here (rather than inside
         # the helper) to keep db.py free of data-fetcher imports — db.py
         # is the Supabase boundary, not the market-data boundary.
-        from db import _client, USE_SUPABASE
+        #
+        # NB: service_role for THIS read specifically. Anon RLS only
+        # lets us see is_public_ledger=true rows, and a fresh prediction
+        # is often is_public_ledger=false (most commonly because it's
+        # a duplicate within the hourly dedupe window). Using the anon
+        # client here makes the "Take this trade" button fail with
+        # "couldn't find that prediction" for the user who literally
+        # just made the call. Service-role on a one-column read is
+        # safe — the ownership check (does this prediction belong to
+        # the caller?) lives inside open_user_paper_trade() below,
+        # gated by the cu: CurrentUser dependency we already
+        # authenticated against.
+        from db import _service_client, USE_SUPABASE
         fill_price: Optional[float] = None
-        # Track WHY we don't have a fill price so the user gets a useful
-        # error. The two failure modes — prediction not found vs market
-        # data feed failed — call for different fixes (frontend/auth bug
-        # vs transient retry), so we don't want to collapse them under
-        # one misleading message.
         lookup_failed = False
         if USE_SUPABASE:
             try:
                 pred = (
-                    _client().table("predictions")
+                    _service_client().table("predictions")
                     .select("symbol")
                     .eq("id", prediction_id)
                     .single()
@@ -818,9 +825,9 @@ def open_user_paper_trade_endpoint(
                     # as a lookup miss so the user sees the right message.
                     lookup_failed = True
             except Exception as exc:  # noqa: BLE001
-                # PGRST116 fires when .single() finds 0 or >1 rows. Both
-                # are "API can't resolve this prediction" from the user's
-                # perspective; surface that, not a fake market-data error.
+                # PGRST116 fires when .single() finds 0 or >1 rows. With
+                # service_role this should now only ever mean "row truly
+                # doesn't exist" — surface as a genuine lookup miss.
                 lookup_failed = True
                 print(f"[paper-trade] symbol lookup failed for {prediction_id}: {exc}")
 
