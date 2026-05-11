@@ -24,6 +24,34 @@ from typing import Optional
 from datetime import datetime
 
 
+def _safe_num(v) -> Optional[float]:
+    """Coerce v to a finite float, or None if it's not numeric / not
+    finite / coerces to NaN. Replaces the `np.isnan(val)` pattern,
+    which crashes with `ufunc 'isnan' not supported for the input
+    types` when v arrives as a string. Small-cap tickers and Finnhub
+    free-tier responses both occasionally return string placeholders
+    where numbers are expected (e.g. POET returns "—" or null-typed
+    string for several fundamentals), and the original code blew up
+    the whole training run on those.
+
+    Use this helper anywhere a fundamentals / earnings / options
+    value of unknown shape needs to be checked-and-used safely:
+
+        val = _safe_num(fundamentals.get("pe_ratio"))
+        if val is not None:
+            feats["fund_pe"] = val
+    """
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(f):
+        return None
+    return f
+
+
 # ─── Browser-impersonating session (anti-rate-limit) ──────────────────────────
 # Yahoo Finance has been actively blocking and rate-limiting requests
 # from cloud-datacenter IP ranges (Fly.io, Render, AWS, GCP) since late
@@ -1041,66 +1069,54 @@ def engineer_features(
         _fund_mask = pd.Series(False, index=df.index)
         _fund_mask.iloc[-min(252, len(df)):] = True
 
-        # Valuation ratios
+        # Valuation ratios. Use _safe_num to defensively coerce — small-
+        # cap tickers (POET, etc.) occasionally return string placeholders
+        # or null-typed strings from the Finnhub free tier, which crash
+        # np.isnan with `ufunc 'isnan' not supported for the input types`.
         for key in ["pe_ratio", "forward_pe", "peg_ratio", "pb_ratio",
                     "ps_ratio", "ev_ebitda"]:
-            val = fundamentals.get(key, float("nan"))
-            if val is not None and not np.isnan(val):
-                feats[f"fund_{key}"] = val
-            else:
-                feats[f"fund_{key}"] = 0.0
+            f = _safe_num(fundamentals.get(key))
+            feats[f"fund_{key}"] = f if f is not None else 0.0
 
         # Profitability
         for key in ["profit_margin", "oper_margin", "roe", "roa", "gross_margin"]:
-            val = fundamentals.get(key, float("nan"))
-            if val is not None and not np.isnan(val):
-                feats[f"fund_{key}"] = val
-            else:
-                feats[f"fund_{key}"] = 0.0
+            f = _safe_num(fundamentals.get(key))
+            feats[f"fund_{key}"] = f if f is not None else 0.0
 
         # Growth signals
         for key in ["rev_growth", "earn_growth", "earn_qtr_growth"]:
-            val = fundamentals.get(key, float("nan"))
-            if val is not None and not np.isnan(val):
-                feats[f"fund_{key}"] = val
-            else:
-                feats[f"fund_{key}"] = 0.0
+            f = _safe_num(fundamentals.get(key))
+            feats[f"fund_{key}"] = f if f is not None else 0.0
 
         # Financial health
         for key in ["debt_to_equity", "current_ratio"]:
-            val = fundamentals.get(key, float("nan"))
-            if val is not None and not np.isnan(val):
-                feats[f"fund_{key}"] = val
-            else:
-                feats[f"fund_{key}"] = 0.0
+            f = _safe_num(fundamentals.get(key))
+            feats[f"fund_{key}"] = f if f is not None else 0.0
 
         # Analyst target vs current price (upside/downside potential)
-        tgt_mean = fundamentals.get("target_mean", float("nan"))
-        if tgt_mean and not np.isnan(tgt_mean) and cur > 0:
+        tgt_mean = _safe_num(fundamentals.get("target_mean"))
+        if tgt_mean is not None and cur > 0:
             feats["analyst_upside"] = tgt_mean / cur - 1
         else:
             feats["analyst_upside"] = 0.0
 
-        tgt_high = fundamentals.get("target_high", float("nan"))
-        tgt_low  = fundamentals.get("target_low", float("nan"))
-        if tgt_high and tgt_low and not np.isnan(tgt_high) and not np.isnan(tgt_low) and cur > 0:
+        tgt_high = _safe_num(fundamentals.get("target_high"))
+        tgt_low = _safe_num(fundamentals.get("target_low"))
+        if tgt_high is not None and tgt_low is not None and cur > 0:
             feats["analyst_range_pct"] = (tgt_high - tgt_low) / cur
         else:
             feats["analyst_range_pct"] = 0.0
 
         # Analyst recommendation score (1=strong buy, 5=sell → invert so higher=bullish)
-        rec_score = fundamentals.get("recommend_score", float("nan"))
-        if rec_score and not np.isnan(rec_score):
+        rec_score = _safe_num(fundamentals.get("recommend_score"))
+        if rec_score is not None:
             feats["analyst_sentiment"] = (5.0 - rec_score) / 4.0  # normalize to 0-1
         else:
             feats["analyst_sentiment"] = 0.5
 
         # Short interest
-        short_pct = fundamentals.get("short_pct", float("nan"))
-        if short_pct and not np.isnan(short_pct):
-            feats["short_interest"] = short_pct
-        else:
-            feats["short_interest"] = 0.0
+        short_pct = _safe_num(fundamentals.get("short_pct"))
+        feats["short_interest"] = short_pct if short_pct is not None else 0.0
 
         # Mask: zero out fundamental features for rows older than 1 year
         # to prevent point-in-time leakage into historical training data
@@ -1116,8 +1132,8 @@ def engineer_features(
     _earn_mask.iloc[-min(252, len(df)):] = True
     if earnings_data and isinstance(earnings_data, dict):
         # Days to next earnings (divide by 252 to normalize)
-        dte = earnings_data.get("days_to_next_earnings", float("nan"))
-        if dte and not np.isnan(dte):
+        dte = _safe_num(earnings_data.get("days_to_next_earnings"))
+        if dte is not None:
             feats["days_to_earnings"] = dte
             feats["earnings_proximity"] = 1.0 / (1.0 + abs(dte) / 30.0)  # closer = higher value
         else:
@@ -1125,24 +1141,15 @@ def engineer_features(
             feats["earnings_proximity"] = 0.5  # neutral if unknown
 
         # Beat/miss history
-        beat_rate = earnings_data.get("beat_rate_ytd", float("nan"))
-        if beat_rate and not np.isnan(beat_rate):
-            feats["earnings_beat_rate"] = beat_rate
-        else:
-            feats["earnings_beat_rate"] = 0.5  # neutral default
+        beat_rate = _safe_num(earnings_data.get("beat_rate_ytd"))
+        feats["earnings_beat_rate"] = beat_rate if beat_rate is not None else 0.5
 
-        last_beat = earnings_data.get("last_beat", float("nan"))
-        if last_beat and not np.isnan(last_beat):
-            feats["last_earnings_beat"] = last_beat  # 1 = beat, -1 = miss, 0 = neutral
-        else:
-            feats["last_earnings_beat"] = 0.0
+        last_beat = _safe_num(earnings_data.get("last_beat"))
+        feats["last_earnings_beat"] = last_beat if last_beat is not None else 0.0
 
         # Surprise magnitude
-        surprise = earnings_data.get("surprise_pct", float("nan"))
-        if surprise and not np.isnan(surprise):
-            feats["earnings_surprise_pct"] = surprise
-        else:
-            feats["earnings_surprise_pct"] = 0.0
+        surprise = _safe_num(earnings_data.get("surprise_pct"))
+        feats["earnings_surprise_pct"] = surprise if surprise is not None else 0.0
 
         # Post-earnings drift features REMOVED 2026-04-23 after benchmark
         # regression (-1.25pp vs after-events). Hypothesis: modern markets
@@ -1162,40 +1169,28 @@ def engineer_features(
     # Also masked to prevent leakage
     if options_data and isinstance(options_data, dict):
         # Implied volatility
-        iv = options_data.get("atm_iv", float("nan"))
-        if iv and not np.isnan(iv):
-            feats["options_atm_iv"] = iv
-        else:
-            feats["options_atm_iv"] = 0.0
+        iv = _safe_num(options_data.get("atm_iv"))
+        feats["options_atm_iv"] = iv if iv is not None else 0.0
 
         # Put/call ratio (elevated = bearish, depressed = bullish)
-        pc_ratio = options_data.get("put_call_ratio", float("nan"))
-        if pc_ratio and not np.isnan(pc_ratio):
-            feats["options_put_call_ratio"] = pc_ratio
-        else:
-            feats["options_put_call_ratio"] = 1.0  # neutral
+        pc_ratio = _safe_num(options_data.get("put_call_ratio"))
+        feats["options_put_call_ratio"] = pc_ratio if pc_ratio is not None else 1.0
 
         # Call/put volume ratio (inverse: high vol ratio = bullish)
-        cpvol_ratio = options_data.get("call_put_vol_ratio", float("nan"))
-        if cpvol_ratio and not np.isnan(cpvol_ratio):
-            feats["options_call_put_vol"] = cpvol_ratio
-        else:
-            feats["options_call_put_vol"] = 1.0  # neutral
+        cpvol_ratio = _safe_num(options_data.get("call_put_vol_ratio"))
+        feats["options_call_put_vol"] = cpvol_ratio if cpvol_ratio is not None else 1.0
 
         # Max pain (distance from current price indicates consensus target)
         cur_price = float(close.iloc[-1]) if len(close) > 0 else 1.0
-        max_pain = options_data.get("max_pain", float("nan"))
-        if max_pain and not np.isnan(max_pain) and cur_price > 0:
+        max_pain = _safe_num(options_data.get("max_pain"))
+        if max_pain is not None and cur_price > 0:
             feats["options_max_pain_diff"] = (max_pain - cur_price) / cur_price
         else:
             feats["options_max_pain_diff"] = 0.0
 
         # IV skew (elevated put IV relative to call = tail risk premium)
-        skew = options_data.get("skew", float("nan"))
-        if skew and not np.isnan(skew):
-            feats["options_iv_skew"] = skew
-        else:
-            feats["options_iv_skew"] = 1.0  # neutral
+        skew = _safe_num(options_data.get("skew"))
+        feats["options_iv_skew"] = skew if skew is not None else 1.0
 
         # Mask options features for older rows
         opt_cols = [c for c in feats.columns if c.startswith("options_")]
