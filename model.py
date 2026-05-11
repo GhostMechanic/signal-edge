@@ -574,9 +574,28 @@ class StockPredictor:
     def _prep(self, features, targets, horizon, selected=None, target_col=None):
         col    = target_col or f"target_{horizon}"
         cols   = selected if selected else list(features.columns)
-        merged = pd.concat([features[cols], targets[col]], axis=1).dropna()
-        X      = merged[cols].values
-        y      = merged[col].values
+        merged = pd.concat([features[cols], targets[col]], axis=1)
+        # Defensive numeric coercion. If ANY upstream code path lets a
+        # string or other non-numeric value slip into a feature column
+        # (small-cap tickers like POET surface this through Finnhub's
+        # free tier returning string placeholders for fundamentals),
+        # the column becomes object-dtype. Once that happens, merged
+        # [cols].values is an object array, and XGBoost's internal
+        # np.isnan check crashes with the well-loved error:
+        #   ufunc 'isnan' not supported for the input types, and
+        #   the inputs could not be safely coerced to any supported
+        #   types according to the casting rule 'safe'
+        # pd.to_numeric(..., errors="coerce") turns any unparseable
+        # cell into NaN, which the subsequent dropna() then removes.
+        # Finally we cast the value array to float64 explicitly so the
+        # XGBoost input is guaranteed numeric regardless of upstream.
+        for c in cols:
+            if merged[c].dtype == object:
+                merged[c] = pd.to_numeric(merged[c], errors="coerce")
+        merged[col] = pd.to_numeric(merged[col], errors="coerce")
+        merged = merged.dropna()
+        X = merged[cols].values.astype(np.float64, copy=False)
+        y = merged[col].values
         return X, y, merged.index, cols
 
     def _load_learned_adjustments(self) -> dict:
