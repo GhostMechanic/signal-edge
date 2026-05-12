@@ -211,4 +211,14 @@ def _get_sp500_fallback() -> list:
         "VRSK","CPRT","PAYX","BIIB","ILMN","AMGN","IDXX","DXCM","IQV","DHI","LEN",
         # Manually curated additions — see comment block above.
         "EBAY","ORCL",
+        # Recent S&P 500 additions (2023-2024). Without these, calls
+        # on names that JUST joined the index get marked
+        # is_public_ledger=false whenever the Wikipedia fetch fails
+        # (which happens often on Render's datacenter IPs — Wiki
+        # serves a 403 to known cloud ranges). Surfaced when DELL
+        # 1-year predictions at 80% confidence kept landing private
+        # despite DELL being added to the index in September 2024.
+        "DELL","PLTR","GEV","KKR","CRWD","ERIE","DECK","SMCI",
+        "BLDR","VLTO","INVH","TPL","TRGP","HUBB","WSM","TKO",
+        "AXON","UBER","DASH","COIN","APP","TTD","ABNB","SHOP",
     ]
