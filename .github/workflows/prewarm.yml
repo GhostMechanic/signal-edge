@@ -1,0 +1,100 @@
+name: Pre-warm
+
+# Nightly model-cache pre-warm for the top-asked tickers. Each ticker
+# gets trained + saved to Render's persistent MODEL_DIR so the first
+# user-facing predict() request of the day hits a sub-second warm
+# cache instead of a 5-20 min cold retrain.
+#
+# Runs ON the API service via POST /api/prewarm/{symbol}, NOT in this
+# runner's filesystem — the workflow runner has no access to Render's
+# persistent disk. The endpoint is gated by a shared-secret token.
+#
+# Pre-reqs in the GitHub repo (Settings → Secrets and variables → Actions):
+#   • PREWARM_API_URL   — the API base URL, e.g. https://prediqt-api.onrender.com
+#   • PREWARM_TOKEN     — shared secret, must match the same env var on Render
+#
+# Pre-reqs on Render (Settings → Environment Variables):
+#   • PREWARM_TOKEN     — same value as the GitHub secret above
+#   • MODEL_DIR         — path to the mounted persistent disk, e.g. /var/models
+
+on:
+  schedule:
+    # 03:00 UTC daily = 22:00 ET (off-hours, after EOD scoring at 20:15).
+    # 30 tickers × ~60-120s each = ~30-60 min wall time. Fits inside the
+    # GitHub Actions 6-hour job budget comfortably.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Override symbols (space-separated). Empty = top 30.'
+        default: ''
+        required: false
+
+jobs:
+  prewarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Don't pile up runs — if last night's prewarm is somehow still
+    # going, skip rather than queue another one.
+    concurrency:
+      group: prewarm
+      cancel-in-progress: false
+    steps:
+      - name: Decide symbol list
+        id: symbols
+        run: |
+          if [ -n "${{ inputs.symbols }}" ]; then
+            echo "list=${{ inputs.symbols }}" >> "$GITHUB_OUTPUT"
+          else
+            # Mirrors TOP_TICKERS in scripts/prewarm_models.py.
+            # Kept inline so the workflow stays self-contained and we
+            # don't need to clone the repo just to read a list.
+            echo "list=AAPL MSFT GOOGL AMZN NVDA META TSLA BRK-B JPM AVGO ORCL AMD INTC NFLX DIS BA COIN PLTR SHOP DELL SPY QQQ DIA XLK XLF EBAY PYPL UBER ABNB RBLX" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pre-warm models
+        env:
+          API_URL: ${{ secrets.PREWARM_API_URL }}
+          TOKEN:   ${{ secrets.PREWARM_TOKEN }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
+            echo "::error::PREWARM_API_URL and PREWARM_TOKEN must be set as repo secrets"
+            exit 1
+          fi
+          echo "=== Pre-warm started $(date -u +%FT%TZ) ==="
+          echo "API: $API_URL"
+
+          OK_COUNT=0
+          FAIL_COUNT=0
+          FAILURES=""
+
+          for SYM in ${{ steps.symbols.outputs.list }}; do
+            echo ""
+            echo ">>> $SYM"
+            # 10 min per-symbol cap. Even a cold full retrain
+            # shouldn't take more than this on Render's standard tier.
+            RESPONSE=$(curl -sS -X POST \
+              -H "X-Prewarm-Token: $TOKEN" \
+              -H "Accept: application/json" \
+              --max-time 600 \
+              "$API_URL/api/prewarm/$SYM" || echo '{"ok":false,"error":"curl timeout or network failure"}')
+            echo "$RESPONSE"
+            OK=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok'))" 2>/dev/null || echo "False")
+            if [ "$OK" = "True" ]; then
+              OK_COUNT=$((OK_COUNT + 1))
+            else
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              FAILURES="$FAILURES $SYM"
+            fi
+            # Small breather between calls to keep the API thread
+            # pool comfortable and not blast the data feeds.
+            sleep 5
+          done
+
+          echo ""
+          echo "=== Pre-warm finished $(date -u +%FT%TZ) ==="
+          echo "Trained: $OK_COUNT"
+          echo "Failed:  $FAIL_COUNT"
+          if [ -n "$FAILURES" ]; then
+            echo "Failed symbols:$FAILURES"
+          fi

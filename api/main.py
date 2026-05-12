@@ -28,7 +28,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import Body, Depends, FastAPI
+from fastapi import Body, Depends, FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import (
@@ -749,6 +749,115 @@ def _resolve_current_price(symbol: str) -> Optional[float]:
     except Exception as exc:  # noqa: BLE001
         print(f"[paper-trade] _resolve_current_price({symbol}) failed: {exc}")
         return None
+
+
+@app.post("/api/prewarm/{symbol}")
+def prewarm_symbol(
+    symbol: str,
+    x_prewarm_token: Optional[str] = Header(None, alias="X-Prewarm-Token"),
+) -> Dict[str, Any]:
+    """
+    Trigger a synchronous train + cache for `symbol`. Designed for the
+    nightly pre-warm cron — keeps the top-N tickers' model files fresh
+    on the persistent disk so user-facing predict() requests hit a
+    warm cache instead of a 5-20 min cold retrain.
+
+    Auth: shared-secret header `X-Prewarm-Token`. Set PREWARM_TOKEN on
+    Render and pass the same value in the GitHub Actions workflow.
+    This endpoint never logs a prediction to the public ledger —
+    it ONLY trains + saves to MODEL_DIR.
+
+    Response shape:
+        { ok: true,  symbol, elapsed_sec, action: "trained|cached" }
+        { ok: false, symbol, error: "..." }
+    """
+    expected = os.environ.get("PREWARM_TOKEN", "").strip()
+    if not expected:
+        return {"ok": False, "error": "PREWARM_TOKEN not configured on server"}
+    if not x_prewarm_token or x_prewarm_token.strip() != expected:
+        return {"ok": False, "error": "invalid prewarm token"}
+
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return {"ok": False, "error": "missing symbol"}
+
+    import time
+    started = time.time()
+    try:
+        from data_fetcher import (
+            fetch_stock_data,
+            fetch_fundamentals,
+            fetch_earnings_data,
+            fetch_options_data,
+            fetch_market_context,
+        )
+        from model import StockPredictor
+
+        df = fetch_stock_data(sym, period="10y")
+        if df is None or len(df) == 0:
+            return {"ok": False, "symbol": sym, "error": "no price data"}
+
+        # Best-effort context. Any one of these failing is fine —
+        # training degrades gracefully.
+        market_ctx = None
+        try:
+            market_ctx = fetch_market_context()
+        except Exception:
+            pass
+        fundamentals = None
+        try:
+            fundamentals = fetch_fundamentals(sym)
+        except Exception:
+            pass
+        earnings = None
+        try:
+            earnings = fetch_earnings_data(sym)
+        except Exception:
+            pass
+        options = None
+        try:
+            current_price = float(df["Close"].iloc[-1])
+            options = fetch_options_data(sym, current_price)
+        except Exception:
+            pass
+
+        predictor = StockPredictor(sym)
+        # train() loads from cache when fresh (≤12h) and skips work,
+        # otherwise fits from scratch + saves. Either way: warm cache
+        # after this returns.
+        predictor.train(
+            df,
+            market_ctx=market_ctx,
+            fundamentals=fundamentals,
+            earnings_data=earnings,
+            options_data=options,
+        )
+        # The cache-hit path inside train() returns early without
+        # touching disk; the retrain path saves at the end. We can
+        # tell them apart by checking the load_failure_reason set
+        # during the load attempt.
+        action = "cached" if not getattr(predictor, "load_failure_reason", None) else "trained"
+        return {
+            "ok": True,
+            "symbol": sym,
+            "elapsed_sec": round(time.time() - started, 1),
+            "action": action,
+        }
+    except ValueError as exc:
+        # Most likely "not enough price history". Soft failure.
+        return {
+            "ok": False,
+            "symbol": sym,
+            "error": str(exc)[:240],
+            "elapsed_sec": round(time.time() - started, 1),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "symbol": sym,
+            "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+            "elapsed_sec": round(time.time() - started, 1),
+        }
 
 
 @app.post("/api/paper-trades")
