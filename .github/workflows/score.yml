@@ -48,9 +48,13 @@ jobs:
       group: scoring-worker
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout@v5 + setup-python@v6 are the Node 24 versions.
+      # GitHub deprecated Node 20 actions in Sep 2025; bumping now avoids
+      # the warning annotation on every run and pre-empts the June 2026
+      # force-migration. No behaviour change for our usage.
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
