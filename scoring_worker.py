@@ -65,7 +65,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -502,21 +502,35 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
     if target_hit_bool:
         # Use target_price as exit (the level we said we'd take profit at).
         exit_price = float(target_price)
+        # rating_expiration is INDEPENDENT of trade outcome — it
+        # measures whether the predicted direction was correct AT
+        # horizon_ends_at. Closing the trade early (because we touched
+        # our take-profit) tells us nothing about where the price will
+        # be on the horizon date, so this rating must stay 'pending'
+        # until the real horizon arrives. score_open_predictions()
+        # picks it up at that point.
         return _build_close(
             trade, direction, qty, entry_price, exit_price,
             close_status="closed_target",
             verdict="HIT",
-            rating_target="hit", rating_checkpoint="hit", rating_expiration="hit",
+            rating_target="hit", rating_checkpoint="hit",
+            rating_expiration="pending",
         )
 
     # 2. STOP hit → MISSED (stop = the call didn't pay off).
     if stop_hit_bool:
         exit_price = float(stop_price)
+        # Same independence argument as the target-hit case above: we
+        # closed early, so we don't know yet what the price will be at
+        # the horizon date. The trade verdict is MISSED (we took the
+        # loss), but rating_expiration is its own measurement and
+        # stays pending until horizon_ends_at.
         return _build_close(
             trade, direction, qty, entry_price, exit_price,
             close_status="closed_stop",
             verdict="MISSED",
-            rating_target="miss", rating_checkpoint="miss", rating_expiration="miss",
+            rating_target="miss", rating_checkpoint="miss",
+            rating_expiration="pending",
         )
 
     # 3. Expiry?
@@ -533,13 +547,23 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
         else:
             verdict = "MISSED"
             rating_checkpoint = "miss"
+        # rating_expiration NOW resolves to a definite value: was the
+        # endpoint direction correct? For LONG, last_close > entry =
+        # right side; for SHORT, last_close < entry = right side.
+        # Pre-fix this hardcoded 'miss' regardless of endpoint, which
+        # made strictness analytics double-count any non-target hit
+        # as a direction failure even when the price closed correctly.
+        if direction == "LONG":
+            endpoint_correct = last_close > entry_price
+        else:  # SHORT
+            endpoint_correct = last_close < entry_price
         return _build_close(
             trade, direction, qty, entry_price, exit_price,
             close_status="closed_expiry",
             verdict=verdict,
             rating_target="miss",
             rating_checkpoint=rating_checkpoint,
-            rating_expiration="miss",
+            rating_expiration="hit" if endpoint_correct else "miss",
         )
 
     # Still open.
@@ -939,6 +963,124 @@ def _evaluate_open_prediction(
     return ("MISSED", "miss", "miss", rating_expiration, last_close, actual_return)
 
 
+def score_expiration_for_traded(now: Optional[datetime] = None) -> dict:
+    """
+    Resolve rating_expiration='pending' for TRADED predictions whose
+    horizon has elapsed.
+
+    Why this exists
+    ───────────────
+    When a paper trade closes early at target or stop, `_evaluate_trade`
+    now leaves rating_expiration='pending' (because closing early says
+    nothing about where the price will be on the horizon date). This
+    function picks those rows up once the horizon actually arrives and
+    decides rating_expiration based on whether the predicted direction
+    matches the price at horizon_ends_at.
+
+    score_open_predictions() handles untraded ("Watched") predictions.
+    This is its mirror for traded predictions — it only touches
+    rating_expiration, leaving verdict + rating_target +
+    rating_checkpoint alone (the trade-close path already wrote those).
+
+    Idempotent: only updates rows still pending. Re-runs are safe.
+    """
+    from db import _service_client
+
+    now = now or datetime.now(timezone.utc)
+    client = _service_client()
+
+    # Pull traded predictions whose horizon has elapsed AND whose
+    # expiration rating is still pending. Verdict will already be
+    # HIT/MISSED/PARTIAL from the trade-close path.
+    rows = (
+        client.table("predictions")
+              .select("*")
+              .lte("horizon_ends_at", now.isoformat())
+              .eq("rating_expiration", "pending")
+              .execute()
+    ).data or []
+
+    summary = {
+        "checked":           len(rows),
+        "marked_hit":        0,
+        "marked_miss":       0,
+        "skipped_untraded":  0,
+        "skipped_nodata":    0,
+        "errors":            [],
+    }
+
+    for pred in rows:
+        pred_id = pred["id"]
+        try:
+            # Must be a traded prediction. Untraded ones are handled by
+            # score_open_predictions; running both functions is safe
+            # because each only writes to its own rows.
+            trade_check = (
+                client.table("model_paper_trades")
+                      .select("id", count="exact")
+                      .eq("prediction_id", pred_id)
+                      .execute()
+            )
+            if (trade_check.count or 0) == 0:
+                summary["skipped_untraded"] += 1
+                continue
+
+            direction_raw = (pred.get("direction") or "").strip()
+            symbol = pred["symbol"]
+            entry_price = float(pred.get("entry_price") or 0)
+            if entry_price <= 0:
+                continue
+
+            # Fetch a price slice that ends at/after horizon_ends_at so we
+            # can read the actual close on the horizon date.
+            horizon_end = _parse_iso(pred["horizon_ends_at"])
+            bars = _intraday_bars_since(symbol, horizon_end - timedelta(days=3))
+            if bars is None or bars.empty:
+                summary["skipped_nodata"] += 1
+                continue
+
+            # Last available close at or after horizon_end. Fall back to
+            # the very latest close if we can't find a bar right on the
+            # horizon (weekends, holidays, late data).
+            try:
+                bars_at_or_after = bars[bars.index >= horizon_end]
+                if len(bars_at_or_after) > 0:
+                    endpoint_close = float(bars_at_or_after["Close"].iloc[0])
+                else:
+                    endpoint_close = float(bars["Close"].iloc[-1])
+            except Exception:
+                endpoint_close = float(bars["Close"].iloc[-1])
+
+            if direction_raw == "Bullish":
+                endpoint_correct = endpoint_close > entry_price
+            elif direction_raw == "Bearish":
+                endpoint_correct = endpoint_close < entry_price
+            elif direction_raw == "Neutral":
+                # Neutral: endpoint correct if return stayed inside deadband.
+                ret = (endpoint_close / entry_price) - 1
+                endpoint_correct = abs(ret) <= NEUTRAL_RETURN_DEADBAND
+            else:
+                continue
+
+            new_rating = "hit" if endpoint_correct else "miss"
+
+            client.table("predictions").update({
+                "rating_expiration": new_rating,
+            }).eq("id", pred_id).execute()
+
+            summary[f"marked_{new_rating}"] += 1
+        except Exception as exc:
+            logger.exception(
+                "score_expiration_for_traded failed for %s: %s", pred_id, exc
+            )
+            summary["errors"].append({
+                "prediction_id": pred_id,
+                "error":         str(exc)[:200],
+            })
+
+    return summary
+
+
 def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
     """
     Update rating_target / rating_checkpoint MID-FLIGHT — i.e. for
@@ -1155,8 +1297,13 @@ def _cli() -> int:
         # checkpoint ratings to flip from pending → hit on the same
         # cadence — not wait until the next 20:15 "both" pass.
         inflight = score_inflight_predictions()
-        print(f"tick           : {result}")
-        print(f"score_inflight : {inflight}")
+        # Expiration resolver for traded predictions whose horizon has
+        # just elapsed. Pairs with the close-at-target/stop path which
+        # leaves rating_expiration='pending' until the horizon arrives.
+        expiration = score_expiration_for_traded()
+        print(f"tick             : {result}")
+        print(f"score_inflight   : {inflight}")
+        print(f"score_expiration : {expiration}")
         return 0
     if cmd == "eod":
         result = eod_pass()
@@ -1181,6 +1328,14 @@ def _cli() -> int:
         result = score_inflight_predictions()
         print(f"score_inflight: {result}")
         return 0
+    if cmd in ("score_expiration", "expiration"):
+        # Resolve pending rating_expiration for traded predictions
+        # whose horizon has now elapsed. Mirror of score_open but
+        # for the trade-side close path that leaves rating_expiration
+        # pending when closing early at target/stop.
+        result = score_expiration_for_traded()
+        print(f"score_expiration: {result}")
+        return 0
     if cmd == "both":
         t = tick()
         e = eod_pass()
@@ -1190,13 +1345,17 @@ def _cli() -> int:
         # surfaces target-hit immediately for any in-flight call,
         # not only after the horizon expires.
         inf = score_inflight_predictions()
+        # Expiration resolver for traded predictions whose horizon
+        # just elapsed (closed-early-via-target-or-stop case).
+        exp = score_expiration_for_traded()
         r = refresh_model_adjustments()
-        print(f"tick           : {t}")
-        print(f"eod            : {e}")
-        print(f"users          : {u}")
-        print(f"score_open     : {s}")
-        print(f"score_inflight : {inf}")
-        print(f"refresh        : {r}")
+        print(f"tick             : {t}")
+        print(f"eod              : {e}")
+        print(f"users            : {u}")
+        print(f"score_open       : {s}")
+        print(f"score_inflight   : {inf}")
+        print(f"score_expiration : {exp}")
+        print(f"refresh          : {r}")
         return 0
     if cmd in ("backfill_option_expiries", "backfill"):
         from db import backfill_option_expiry_dates
