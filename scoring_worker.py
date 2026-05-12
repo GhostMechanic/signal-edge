@@ -1002,11 +1002,13 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
     for pred in inflight:
         pred_id = pred["id"]
         try:
-            # If already 'hit' on both, nothing left to do — short-circuit
-            # to avoid a yfinance round-trip we don't need.
+            # If both ratings are already in a terminal state (hit or
+            # miss), nothing left to do — short-circuit to avoid the
+            # yfinance round-trip. 'pending' is the only state that
+            # invites another look.
             rt = (pred.get("rating_target") or "pending").lower()
             rc = (pred.get("rating_checkpoint") or "pending").lower()
-            if rt == "hit" and rc == "hit":
+            if rt in ("hit", "miss") and rc in ("hit", "miss"):
                 continue
 
             # Skip traded predictions — model_paper_trades owns those
@@ -1026,9 +1028,9 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
                 direction = "LONG"
             elif direction_raw == "Bearish":
                 direction = "SHORT"
+            elif direction_raw == "Neutral":
+                direction = "NEUTRAL"
             else:
-                # Neutral predictions don't have a target/checkpoint to
-                # touch — they're scored at expiration only. Leave them.
                 continue
 
             symbol = pred["symbol"]
@@ -1042,32 +1044,69 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
                 continue
 
             entry_price = float(pred.get("entry_price") or 0)
-            target_price = (
-                float(pred["target_price"]) if pred.get("target_price") else None
-            )
-
-            # Checkpoint = midpoint between entry and target (Methodology §5.1).
-            if target_price and entry_price > 0:
-                target_return     = (target_price / entry_price) - 1
-                checkpoint_return = target_return / 2
-                checkpoint_price  = entry_price * (1 + checkpoint_return)
-            else:
-                checkpoint_price = None
-
-            target_hit_bool, checkpoint_hit_bool, _ = _scan_bars(
-                bars, direction, target_price, checkpoint_price,
-                stop_price=None,
-            )
 
             update_fields: dict = {}
-            if target_hit_bool and rt != "hit":
-                update_fields["rating_target"] = "hit"
-                # Target implies checkpoint (target > checkpoint in the
-                # predicted direction). Mark both atomically.
-                if rc != "hit":
+
+            if direction == "NEUTRAL":
+                # Neutral prediction = "price stays within deadband".
+                # In-flight semantic mirrors LONG/SHORT but inverted:
+                #   • If price has EXCEEDED 1× deadband → rating_target
+                #     flips to 'miss' (the tight band is broken).
+                #   • If price has EXCEEDED 2× deadband → also flip
+                #     rating_checkpoint to 'miss' (the looser band is
+                #     also broken; bigger move = worse).
+                # This is the natural inverse of LONG/SHORT where
+                # touching the target is the positive event. For
+                # Neutral, leaving the band is the decisive event.
+                if entry_price <= 0:
+                    # Can't compute deadband bounds without an entry.
+                    continue
+                upper_t = entry_price * (1 + NEUTRAL_RETURN_DEADBAND)
+                lower_t = entry_price * (1 - NEUTRAL_RETURN_DEADBAND)
+                upper_c = entry_price * (1 + 2 * NEUTRAL_RETURN_DEADBAND)
+                lower_c = entry_price * (1 - 2 * NEUTRAL_RETURN_DEADBAND)
+                highs = bars["High"].astype(float)
+                lows = bars["Low"].astype(float)
+                target_breached = bool(
+                    (highs > upper_t).any() or (lows < lower_t).any()
+                )
+                checkpoint_breached = bool(
+                    (highs > upper_c).any() or (lows < lower_c).any()
+                )
+                if target_breached and rt != "miss":
+                    update_fields["rating_target"] = "miss"
+                if checkpoint_breached and rc != "miss":
+                    update_fields["rating_checkpoint"] = "miss"
+
+            else:
+                # LONG / SHORT — scan for target / checkpoint touched
+                # in the predicted direction.
+                target_price = (
+                    float(pred["target_price"])
+                    if pred.get("target_price") else None
+                )
+
+                # Checkpoint = midpoint between entry and target (Methodology §5.1).
+                if target_price and entry_price > 0:
+                    target_return     = (target_price / entry_price) - 1
+                    checkpoint_return = target_return / 2
+                    checkpoint_price  = entry_price * (1 + checkpoint_return)
+                else:
+                    checkpoint_price = None
+
+                target_hit_bool, checkpoint_hit_bool, _ = _scan_bars(
+                    bars, direction, target_price, checkpoint_price,
+                    stop_price=None,
+                )
+
+                if target_hit_bool and rt != "hit":
+                    update_fields["rating_target"] = "hit"
+                    # Target implies checkpoint (target > checkpoint
+                    # in the predicted direction). Mark both atomically.
+                    if rc != "hit":
+                        update_fields["rating_checkpoint"] = "hit"
+                elif checkpoint_hit_bool and rc != "hit":
                     update_fields["rating_checkpoint"] = "hit"
-            elif checkpoint_hit_bool and rc != "hit":
-                update_fields["rating_checkpoint"] = "hit"
 
             if not update_fields:
                 continue
