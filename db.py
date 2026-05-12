@@ -2297,10 +2297,16 @@ def get_public_ledger(
             "get_public_ledger requires Supabase mode."
         )
 
+    # rating_target / rating_checkpoint / rating_expiration are public-
+    # tier fields: they're the visible scorecard for each call (whether
+    # the call hit its mark, partway-mark, or its endpoint direction).
+    # Surfacing them in the list lets the UI render an at-a-glance grade
+    # column without forcing every row expand to fire /api/ledger/{id}.
     q = (
         _client().table("predictions")
             .select("id, symbol, direction, horizon, verdict, traded, "
-                    "created_at, horizon_ends_at")
+                    "created_at, horizon_ends_at, "
+                    "rating_target, rating_checkpoint, rating_expiration")
             .eq("is_public_ledger", True)
             .order("created_at", desc=True)
             .range(offset, offset + limit - 1)
