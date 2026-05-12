@@ -74,32 +74,74 @@ def _save_cache(sp500: list, nasdaq: list, dow: list):
         }, f)
 
 
+# A real browser User-Agent. Wikipedia routinely 403s the default
+# Python / pandas user agents from known datacenter IPs (Render, AWS,
+# Fly, etc.) — which silently broke the public-ledger pipeline because
+# the universe lookup would fall through to the curated fallback list,
+# and any ticker not in that list got is_public_ledger=false even when
+# it was a legitimate S&P 500 / NASDAQ-100 constituent. Sending a real
+# Chrome user agent removes that gate. Kept here as a module-level
+# constant so both fetches use the same string.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def _fetch_wiki_html(url: str, timeout: int = 15) -> Optional[str]:
+    """Fetch a Wikipedia page with a real browser User-Agent.
+
+    pd.read_html doesn't let us customise headers, so we fetch the HTML
+    via requests and hand the text to read_html instead. Wikipedia
+    serves 403 to the default python-urllib/requests UAs from
+    datacenter IPs; this header makes us look like a browser and the
+    fetch succeeds from Render's egress range too.
+    """
+    try:
+        import requests
+        r = requests.get(url, headers={"User-Agent": _BROWSER_UA}, timeout=timeout)
+        if r.status_code != 200:
+            logger.warning(
+                "Wikipedia fetch %s returned HTTP %s — falling back to "
+                "hardcoded universe lists.",
+                url, r.status_code,
+            )
+            return None
+        return r.text
+    except Exception as e:
+        logger.warning(f"Wikipedia fetch {url} failed: {e}")
+        return None
+
+
 def _fetch_sp500_wiki() -> list:
     """Scrape S&P 500 tickers from Wikipedia."""
+    html = _fetch_wiki_html(
+        "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    )
+    if html is None:
+        return []
     try:
         import pandas as pd
-        tables = pd.read_html(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            header=0
-        )
+        tables = pd.read_html(html, header=0)
         df = tables[0]
         # Column is 'Symbol' or 'Ticker symbol'
         col = "Symbol" if "Symbol" in df.columns else df.columns[0]
         tickers = df[col].str.replace(".", "-", regex=False).tolist()
         return [t.strip() for t in tickers if isinstance(t, str) and t.strip()]
     except Exception as e:
-        logger.warning(f"Wikipedia S&P 500 fetch failed: {e}")
+        logger.warning(f"Wikipedia S&P 500 parse failed: {e}")
         return []
 
 
 def _fetch_nasdaq100_wiki() -> list:
     """Scrape NASDAQ-100 tickers from Wikipedia."""
+    html = _fetch_wiki_html("https://en.wikipedia.org/wiki/Nasdaq-100")
+    if html is None:
+        return NASDAQ_100   # fallback
     try:
         import pandas as pd
-        tables = pd.read_html(
-            "https://en.wikipedia.org/wiki/Nasdaq-100",
-            header=0
-        )
+        tables = pd.read_html(html, header=0)
         for tbl in tables:
             cols = [str(c).lower() for c in tbl.columns]
             if any("ticker" in c or "symbol" in c for c in cols):
@@ -109,7 +151,7 @@ def _fetch_nasdaq100_wiki() -> list:
                 if len(tickers) > 50:
                     return tickers
     except Exception as e:
-        logger.warning(f"Wikipedia NASDAQ-100 fetch failed: {e}")
+        logger.warning(f"Wikipedia NASDAQ-100 parse failed: {e}")
     return NASDAQ_100   # fallback
 
 
@@ -221,4 +263,14 @@ def _get_sp500_fallback() -> list:
         "DELL","PLTR","GEV","KKR","CRWD","ERIE","DECK","SMCI",
         "BLDR","VLTO","INVH","TPL","TRGP","HUBB","WSM","TKO",
         "AXON","UBER","DASH","COIN","APP","TTD","ABNB","SHOP",
+        # Additional surfaced misses from the data-integrity audit
+        # (category F — high-confidence rows off-ledger with no dedupe
+        # ancestor, i.e. excluded purely by the universe check).
+        # Each one verified as a current S&P 500 constituent before
+        # adding; non-S&P names like FUN, POET, MCH stayed out by design.
+        #   • TTWO (Take-Two Interactive) — S&P 500 + NASDAQ-100,
+        #     surfaced because the user kept testing chart fixes on it
+        #     and the predictions weren't landing on the public ledger
+        #     despite confidence ≥ 78%.
+        "TTWO",
     ]
