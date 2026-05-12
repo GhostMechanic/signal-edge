@@ -939,6 +939,159 @@ def _evaluate_open_prediction(
     return ("MISSED", "miss", "miss", rating_expiration, last_close, actual_return)
 
 
+def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
+    """
+    Update rating_target / rating_checkpoint MID-FLIGHT — i.e. for
+    predictions whose horizon hasn't elapsed yet but whose target or
+    checkpoint has already been touched.
+
+    Why this exists
+    ───────────────
+    `score_open_predictions()` only scores predictions whose
+    horizon_ends_at has elapsed. For a 1-month AAPL call asked
+    May 1 with horizon ending May 31, the three rating fields stay
+    'pending' for the full month even if price crossed the target
+    on day 3. The ledger UI surfaces `rating_target` directly, so
+    the user sees "TARGET: Pending" for the entire in-flight window
+    despite the chart clearly showing price above the target line.
+
+    What it touches
+    ───────────────
+    rating_target / rating_checkpoint only. rating_expiration stays
+    'pending' because the endpoint reading isn't decided until the
+    horizon expires (price can reverse before the close). verdict
+    also stays 'OPEN' for the same reason.
+
+    Idempotency
+    ───────────
+    Only writes when the value would change (pending → hit). Never
+    flips an existing 'hit' or 'miss' back to 'pending', and skips
+    any prediction that already has a linked model_paper_trade
+    (those are scored via close_model_trade and own their rating
+    lifecycle).
+
+    Returns a per-run summary for logs:
+        { "checked": N, "marked_target": x, "marked_checkpoint": y,
+          "skipped_traded": k, "skipped_nodata": z, "errors": [...] }
+    """
+    from db import _service_client
+
+    now = now or datetime.now(timezone.utc)
+    client = _service_client()
+
+    # Pull open predictions still inside their window. We DON'T filter
+    # on rating_target = 'pending' at the DB level because legacy rows
+    # may have NULL for these columns; we handle both cases in-Python.
+    inflight = (
+        client.table("predictions")
+              .select("*")
+              .eq("verdict", "OPEN")
+              .gt("horizon_ends_at", now.isoformat())
+              .execute()
+    ).data or []
+
+    summary = {
+        "checked":           len(inflight),
+        "marked_target":     0,
+        "marked_checkpoint": 0,
+        "skipped_traded":    0,
+        "skipped_nodata":    0,
+        "errors":            [],
+    }
+
+    for pred in inflight:
+        pred_id = pred["id"]
+        try:
+            # If already 'hit' on both, nothing left to do — short-circuit
+            # to avoid a yfinance round-trip we don't need.
+            rt = (pred.get("rating_target") or "pending").lower()
+            rc = (pred.get("rating_checkpoint") or "pending").lower()
+            if rt == "hit" and rc == "hit":
+                continue
+
+            # Skip traded predictions — model_paper_trades owns those
+            # rating fields via close_model_trade.
+            trade_check = (
+                client.table("model_paper_trades")
+                      .select("id", count="exact")
+                      .eq("prediction_id", pred_id)
+                      .execute()
+            )
+            if (trade_check.count or 0) > 0:
+                summary["skipped_traded"] += 1
+                continue
+
+            direction_raw = (pred.get("direction") or "").strip()
+            if direction_raw == "Bullish":
+                direction = "LONG"
+            elif direction_raw == "Bearish":
+                direction = "SHORT"
+            else:
+                # Neutral predictions don't have a target/checkpoint to
+                # touch — they're scored at expiration only. Leave them.
+                continue
+
+            symbol = pred["symbol"]
+            starts_at = _parse_iso(
+                pred.get("horizon_starts_at") or pred.get("created_at")
+            )
+
+            bars = _intraday_bars_since(symbol, starts_at)
+            if bars is None or bars.empty:
+                summary["skipped_nodata"] += 1
+                continue
+
+            entry_price = float(pred.get("entry_price") or 0)
+            target_price = (
+                float(pred["target_price"]) if pred.get("target_price") else None
+            )
+
+            # Checkpoint = midpoint between entry and target (Methodology §5.1).
+            if target_price and entry_price > 0:
+                target_return     = (target_price / entry_price) - 1
+                checkpoint_return = target_return / 2
+                checkpoint_price  = entry_price * (1 + checkpoint_return)
+            else:
+                checkpoint_price = None
+
+            target_hit_bool, checkpoint_hit_bool, _ = _scan_bars(
+                bars, direction, target_price, checkpoint_price,
+                stop_price=None,
+            )
+
+            update_fields: dict = {}
+            if target_hit_bool and rt != "hit":
+                update_fields["rating_target"] = "hit"
+                # Target implies checkpoint (target > checkpoint in the
+                # predicted direction). Mark both atomically.
+                if rc != "hit":
+                    update_fields["rating_checkpoint"] = "hit"
+            elif checkpoint_hit_bool and rc != "hit":
+                update_fields["rating_checkpoint"] = "hit"
+
+            if not update_fields:
+                continue
+
+            client.table("predictions").update(update_fields).eq(
+                "id", pred_id
+            ).execute()
+
+            if "rating_target" in update_fields:
+                summary["marked_target"] += 1
+            if "rating_checkpoint" in update_fields:
+                summary["marked_checkpoint"] += 1
+        except Exception as exc:
+            logger.exception(
+                "score_inflight_predictions failed for %s: %s", pred_id, exc
+            )
+            summary["errors"].append({
+                "prediction_id": pred_id,
+                "error":         str(exc)[:200],
+            })
+
+    return summary
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def _cli() -> int:
@@ -957,7 +1110,14 @@ def _cli() -> int:
 
     if cmd == "tick":
         result = tick()
-        print(f"tick: {result}")
+        # Mid-flight rating update for non-traded ("Watched") predictions.
+        # Lives alongside tick() because the GitHub Actions cron runs
+        # "tick" every 5 min during market hours, and we want target /
+        # checkpoint ratings to flip from pending → hit on the same
+        # cadence — not wait until the next 20:15 "both" pass.
+        inflight = score_inflight_predictions()
+        print(f"tick           : {result}")
+        print(f"score_inflight : {inflight}")
         return 0
     if cmd == "eod":
         result = eod_pass()
@@ -974,17 +1134,30 @@ def _cli() -> int:
         result = score_open_predictions()
         print(f"score_open: {result}")
         return 0
+    if cmd in ("score_inflight", "inflight"):
+        # Mid-flight rating update: scan still-open predictions whose
+        # target or checkpoint has already been touched and mark
+        # rating_target / rating_checkpoint = 'hit'. Leaves verdict
+        # and rating_expiration alone (those decide at horizon end).
+        result = score_inflight_predictions()
+        print(f"score_inflight: {result}")
+        return 0
     if cmd == "both":
         t = tick()
         e = eod_pass()
         u = user_eod_pass()
         s = score_open_predictions()
+        # Inflight scoring lives alongside score_open so the ledger
+        # surfaces target-hit immediately for any in-flight call,
+        # not only after the horizon expires.
+        inf = score_inflight_predictions()
         r = refresh_model_adjustments()
-        print(f"tick      : {t}")
-        print(f"eod       : {e}")
-        print(f"users     : {u}")
-        print(f"score_open: {s}")
-        print(f"refresh   : {r}")
+        print(f"tick           : {t}")
+        print(f"eod            : {e}")
+        print(f"users          : {u}")
+        print(f"score_open     : {s}")
+        print(f"score_inflight : {inf}")
+        print(f"refresh        : {r}")
         return 0
     if cmd in ("backfill_option_expiries", "backfill"):
         from db import backfill_option_expiry_dates

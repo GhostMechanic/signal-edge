@@ -34,7 +34,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: 'tick | eod | users | both | refresh | retrain_pending'
+        description: 'tick | eod | users | both | refresh | retrain_pending | score_inflight | score_open'
         default: 'tick'
         required: true
 

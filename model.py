@@ -31,6 +31,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+import gc
 import json
 import numpy as np
 import pandas as pd
@@ -1223,6 +1224,23 @@ class StockPredictor:
                 "avg_member_acc": avg_member_acc,
             }
 
+            # ── Memory hygiene: release intermediate training arrays ────────
+            # Each horizon allocates a fresh feat_with_mtf, X_all, y_all, plus
+            # dozens of per-member X_tr/X_va matrices inside the L1 loop.
+            # Without a manual collect, these stick around as references in
+            # the function's frame until the *next* horizon overwrites them —
+            # which on Render's 512MB Starter tier is enough to OOM by the
+            # time we hit "1 year". Force a collect between horizons so each
+            # one starts from a clean baseline.
+            try:
+                # Drop refs the GC can't see (locals get rebound on next iter
+                # but we want them gone NOW, before the next horizon's preds).
+                X_all = y_all = None
+                feat_with_mtf = None
+            except Exception:
+                pass
+            gc.collect()
+
         # Mark trained if at least one horizon was successfully trained
         if self.l1_members:
             self.is_trained = True
@@ -1234,6 +1252,12 @@ class StockPredictor:
             self.save_model()
         except Exception:
             pass  # Non-fatal: model works in memory even if save fails
+
+        # Final sweep before handing control back to the API. Training builds
+        # a lot of transient state (Optuna study objects, per-horizon CV
+        # splits, calibration arrays) that's no longer needed once we've
+        # stashed the kept_members / l2_models / calibration dicts on self.
+        gc.collect()
 
         if progress_callback:
             progress_callback(1.0, "Training complete.")
