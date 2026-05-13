@@ -47,6 +47,47 @@ NASDAQ_100 = [
     "TMUS","TSLA","TTD","TXN","VRSK","VRTX","WBD","WDAY","XEL","ZS","ZM",
 ]
 
+# ── Major liquid ETFs ────────────────────────────────────────────────
+# The S&P 500 / NASDAQ-100 / Dow 30 lists are stocks only — none of
+# them include ETFs even though ETFs are first-class tradable
+# instruments and the model trains + predicts on them with the same
+# methodology. Without an ETF bucket, calls like IBIT (Bitcoin spot ETF
+# with $40B+ AUM, daily volume in the tens of millions) fall through
+# the canonical-universe gate and land off the public ledger.
+#
+# Curated for liquidity and breadth: index trackers, sector SPDRs, the
+# major commodity / fixed-income / international funds, and the spot-
+# crypto ETFs the model is increasingly being asked about. Adding a
+# new ETF here is a one-line change once you confirm 1) avg daily
+# volume > 1M shares and 2) AUM > $1B.
+ETFS = [
+    # Broad-market index trackers
+    "SPY","QQQ","DIA","IWM","VOO","VTI","VEA","VWO",
+    # Sector SPDRs (XL* family covers S&P 500 sector slices)
+    "XLK","XLF","XLE","XLU","XLV","XLI","XLY","XLP","XLB","XLRE","XLC",
+    # Bonds / fixed income
+    "TLT","IEF","SHY","LQD","HYG","AGG","BND","TIP",
+    # Precious metals & commodities
+    "GLD","SLV","IAU","USO","UNG",
+    # International / regional
+    "EFA","EEM","FXI","INDA","EWZ","EWJ","ASHR",
+    # Crypto (spot ETF era — Bitcoin + Ethereum approved 2024)
+    "IBIT","FBTC","ARKB","BITB","HODL","BTCO","BRRR","EZBC",
+    "ETHA","FETH","ETHE","ETHV","EZET","ETH",
+    # High-yield / dividend
+    "VYM","SCHD","DVY","NOBL","SPHD",
+    # Growth / Vanguard styles
+    "VUG","VTV","VBR","VBK","VB","VO","VV",
+    # Innovation & thematic (high-volume ARK family + key thematic)
+    "ARKK","ARKW","ARKG","ARKQ","ARKF","ICLN","TAN","LIT",
+    # Levered / inverse (popular for short-term trades — TQQQ/SQQQ etc.)
+    "TQQQ","SQQQ","UPRO","SPXU","UDOW","SDOW","TMF","TMV",
+    # Volatility (VIX-linked, retail-popular)
+    "VXX","UVXY","SVXY",
+    # Real estate
+    "VNQ","IYR","REM","SCHH",
+]
+
 
 def _load_cache() -> Optional[dict]:
     """Load cached universe data if still fresh."""
@@ -188,7 +229,14 @@ def get_full_universe() -> dict:
     """
     Return combined universe with source labels.
     Fetches all three indices and caches them together.
-    Returns: {"sp500": [...], "nasdaq100": [...], "dow30": [...], "all": [...unique...]}
+    Returns: {"sp500": [...], "nasdaq100": [...], "dow30": [...],
+              "etfs": [...], "all": [...unique...]}
+
+    Note on ETFs: hardcoded module-level list (not Wikipedia-fetched)
+    because there's no single authoritative index of "tradable ETFs"
+    the way there is for stock indices. The curated ETFS list is
+    maintained by hand — see comment above it for the inclusion bar
+    (volume > 1M / day, AUM > $1B).
     """
     cache = _load_cache()
     if cache:
@@ -201,16 +249,19 @@ def get_full_universe() -> dict:
         dow30     = DOW_30
         _save_cache(sp500, nasdaq100, dow30)
 
-    all_tickers = sorted(set(sp500 + nasdaq100 + dow30))
+    etfs = list(ETFS)
+    all_tickers = sorted(set(sp500 + nasdaq100 + dow30 + etfs))
     return {
         "sp500":     sp500,
         "nasdaq100": nasdaq100,
         "dow30":     dow30,
+        "etfs":      etfs,
         "all":       all_tickers,
         "counts": {
             "sp500":     len(sp500),
             "nasdaq100": len(nasdaq100),
             "dow30":     len(dow30),
+            "etfs":      len(etfs),
             "total":     len(all_tickers),
         }
     }

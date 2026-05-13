@@ -447,7 +447,14 @@ def _is_public_ledger(
         from universe import get_full_universe
         u = get_full_universe()
         canon: set[str] = set()
-        for key in ("sp500", "nasdaq100", "dow30"):
+        # 'etfs' is a hand-curated bucket of major liquid ETFs
+        # maintained in universe.py — included here so calls on IBIT,
+        # SPY, QQQ, etc. qualify for the public ledger alongside their
+        # stock-index siblings. The bucket was added because IBIT 1-mo
+        # predictions at 60%+ confidence were landing off-ledger
+        # despite the model training + predicting on the ticker
+        # exactly as it does for S&P 500 names.
+        for key in ("sp500", "nasdaq100", "dow30", "etfs"):
             for t in (u.get(key) or []):
                 canon.add(str(t).strip().upper())
         if symbol.strip().upper() not in canon:
