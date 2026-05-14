@@ -3203,23 +3203,55 @@ def predict_symbol(
         # sense for established names like NFLX with 20+ years of
         # history).
         EXPECTED_HORIZONS = ["3 Day", "1 Week", "1 Month", "1 Quarter", "1 Year"]
-        # Pull the per-horizon skip-reason map populated by train()'s
-        # early-continue sites. When present, surface the real reason
-        # ("not enough labeled rows after the purge gap", "every base
-        # learner raised an exception", etc.) instead of generic copy.
+        # Pull the per-horizon skip-reason map populated by train() AND
+        # predict()'s early-continue sites. When present, surface the
+        # real reason — train-time reasons are things like "not enough
+        # labeled rows after the purge gap" or "every base learner
+        # raised an exception while fitting"; predict-time reasons are
+        # "the most recent feature row had missing values" or "every
+        # trained model raised at predict time". Both are more useful
+        # than a generic fallback.
         skip_reasons_map = getattr(predictor, "skip_reasons", {}) or {}
+        # Compute the set of horizons that DID work so we can name them
+        # in the user-facing copy. Helps the user pivot to a working
+        # horizon instead of giving up.
+        working_horizons = [
+            h for h in EXPECTED_HORIZONS
+            if h in predictions
+            and isinstance(predictions[h], dict)
+            and not predictions[h].get("skipped")
+        ]
         for h in EXPECTED_HORIZONS:
             if h not in predictions:
                 real_reason = skip_reasons_map.get(h)
+                if real_reason:
+                    skip_reason = real_reason
+                elif working_horizons:
+                    # Honest fallback when no specific reason was
+                    # captured: don't guess "probably an ensemble
+                    # convergence issue" (a hand-wave we can't verify);
+                    # just say what we know and point the user at the
+                    # horizons that DID work on the same ticker.
+                    skip_reason = (
+                        "this horizon didn't make it through the prediction "
+                        "pipeline, and we couldn't trace the exact reason — "
+                        "but the model produced calls on "
+                        + ", ".join(working_horizons)
+                        + " for the same ticker. those windows are working "
+                        + "right now."
+                    )
+                else:
+                    # No working horizons either — ticker is likely
+                    # genuinely broken (data quality, freshly retraining,
+                    # etc.). Honest "try again later" message.
+                    skip_reason = (
+                        "no horizon completed for this ticker this run. "
+                        "this is usually a transient data or retraining "
+                        "issue — try again in a few minutes."
+                    )
                 predictions[h] = {
                     "skipped": True,
-                    "skip_reason": real_reason or (
-                        "the model trained but couldn't ship this specific "
-                        "horizon and didn't capture a specific reason "
-                        "(probably an ensemble convergence issue on this "
-                        "window). other horizons on the same ticker often "
-                        "still work — try one."
-                    ),
+                    "skip_reason": skip_reason,
                 }
 
         # Stamp each horizon with its expiration date (today + N days) and

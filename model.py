@@ -1287,7 +1287,10 @@ class StockPredictor:
         horizon_order = sorted(HORIZONS.keys(), key=lambda h: HORIZONS[h])
 
         for horizon in horizon_order:
-            # Skip if this horizon wasn't trained (e.g., all L1 models failed)
+            # Skip if this horizon wasn't trained (e.g., all L1 models failed).
+            # train() already captured a skip_reason for these horizons, so
+            # don't overwrite it here — the train-time reason is more
+            # specific than anything we can say at predict time.
             if horizon not in self.l1_members:
                 continue
 
@@ -1309,6 +1312,19 @@ class StockPredictor:
 
             feat_clean = feat_with_mtf[selected].dropna()
             if feat_clean.empty:
+                # Predict-time skip — the model trained fine but the most
+                # recent feature row had NaN values that couldn't be
+                # filled. Usually a stale data point (missing dividend,
+                # corporate action gap, intraday halt). Capture so the
+                # API surfaces a real reason instead of the generic
+                # "didn't capture a specific reason" fallback.
+                self.skip_reasons[horizon] = (
+                    "the most recent feature row had missing values that "
+                    "couldn't be back-filled (often a stale dividend, "
+                    "corporate action gap, or intraday halt on this ticker). "
+                    "the trained model is fine — the input snapshot for "
+                    "today wasn't usable for this window."
+                )
                 continue
 
             last_row_full = feat_clean.iloc[-1].values
@@ -1352,6 +1368,20 @@ class StockPredictor:
                     pass
 
             if not l1_preds:
+                # Every L1 member raised at predict-time (scaler dimension
+                # drift, NaN propagation through one of the trees,
+                # numerical instability in the regressor). Capture so the
+                # API surfaces this real reason instead of the generic
+                # fallback. The model trained fine on this horizon — the
+                # failure is at inference time, usually from a feature
+                # row that diverged from the training distribution enough
+                # to break every member.
+                self.skip_reasons[horizon] = (
+                    "every trained model in the ensemble raised an exception "
+                    "at predict time (numerical instability or feature-shape "
+                    "drift between training and today's data). retrying after "
+                    "the next nightly retrain often resolves this."
+                )
                 continue
 
             l1_preds = np.array(l1_preds)
