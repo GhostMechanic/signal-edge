@@ -3493,10 +3493,32 @@ def predict_symbol(
             print(f"[predict {sym}] enrichment failed (non-fatal): {e_enrich}")
             enrichment_payload = {}
 
+        # ── Company profile (logo, name, industry) ────────────────────
+        # Pulled from Finnhub so the receipt header can render the
+        # company logo alongside the ticker. Non-fatal: missing logo
+        # just degrades to the existing text-only header.
+        logo_url: Optional[str] = None
+        company_name: Optional[str] = None
+        company_industry: Optional[str] = None
+        try:
+            from finnhub_client import get_company_profile
+            profile = get_company_profile(sym)
+            if profile:
+                logo_url = profile.logo_url
+                company_name = profile.name
+                company_industry = profile.industry
+        except Exception as e_profile:
+            # Finnhub key missing, network blip, or symbol not in their
+            # database — fall through with logo_url=None.
+            print(f"[predict {sym}] profile fetch failed (non-fatal): {e_profile}")
+
         payload = {
             "symbol":            sym,
             "current_price":     current_price,
             "today_change_pct":  today_change_pct,
+            "logo_url":          logo_url,
+            "company_name":      company_name,
+            "industry":          company_industry,
             "price_30d":         price_30d,
             "predictions":       predictions,
             "trade_plan":        trade_plan,
