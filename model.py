@@ -1548,6 +1548,27 @@ class StockPredictor:
             if abs_ret > 2 * tgt_std and agree_frac < 0.60:
                 confidence *= 0.80
 
+            # ── Ensemble disagreement haircut (applied unconditionally) ─────
+            # The penalty above only fires for "big" predictions. But a
+            # call where only 1-2 of 12 base models agree with the L2
+            # stacker's final pick deserves a confidence haircut
+            # regardless of move size — even if historical accuracy is
+            # high, "the model is internally divided right now" is a
+            # real and material signal the headline number should
+            # reflect. Surfaced when an LRCX 1Q Bullish call landed at
+            # 82.5% confidence despite ensemble agreement of 8%
+            # (1 of 12 models). Calibrated against the buckets the UI
+            # already shows in the "How is this calculated?" expand:
+            #   • <20%  → severe disagreement (1-2 of 12)
+            #   • <40%  → moderate disagreement (3-4 of 12)
+            #   • <55%  → mild disagreement (5-6 of 12)
+            if agree_frac < 0.20:
+                confidence *= 0.50
+            elif agree_frac < 0.40:
+                confidence *= 0.70
+            elif agree_frac < 0.55:
+                confidence *= 0.85
+
             # Only flag as "extreme" (UI warning) for true extrapolation
             is_extreme = extrapolation_ratio > 1.0
 
