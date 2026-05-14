@@ -43,8 +43,13 @@ NASDAQ_100 = [
     "INTC","INTU","ISRG","KDP","KHC","KLAC","LRCX","LULU","MAR","MCHP",
     "MDB","MDLZ","META","MNST","MRNA","MRVL","MSFT","MU","NFLX","NVDA",
     "NXPI","ODFL","ON","ORCL","ORLY","PANW","PAYX","PCAR","PDD","PEP",
-    "PYPL","QCOM","REGN","ROP","ROST","SBUX","SMCI","SNPS","SPLK","TEAM",
+    "PYPL","QCOM","REGN","ROP","ROST","SBUX","SMCI","SNPS","TEAM",
     "TMUS","TSLA","TTD","TXN","VRSK","VRTX","WBD","WDAY","XEL","ZS","ZM",
+    # Defunct tickers removed:
+    #   • SPLK (Splunk) — acquired by Cisco March 2024, delisted.
+    #     Surfaced when the model couldn't fetch data for SPLK on
+    #     the asking flow and the receipt's universe check still
+    #     claimed it was canonical.
 ]
 
 # ── Major liquid ETFs ────────────────────────────────────────────────
