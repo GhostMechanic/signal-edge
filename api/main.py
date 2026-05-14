@@ -675,10 +675,48 @@ def user_paper_portfolio(
                 if sym and sym not in price_cache:
                     price_cache[sym] = _resolve_current_price(sym)
                 tr["current_price"] = price_cache.get(sym)
-                tr["unrealised_pnl_live"] = None
                 tr["horizon_ended"] = False  # options have own expiry semantics
                 ins = tr.get("instrument_data") or {}
-                live_open_value += float(ins.get("cash_locked") or 0)
+                cash_locked = float(ins.get("cash_locked") or 0)
+
+                # Best-effort live valuation via options_pricer. The
+                # close path uses this same function to get the fill
+                # price, so surfacing it here lets the user see what
+                # the position is worth right now AND lets the close
+                # button show a preview instead of disabling on
+                # "no quote." When the pricer can't reach the chain
+                # (yfinance rate-limited, strike not in the snap
+                # window, etc.) we fall back to None and the FE
+                # degrades to the existing "no quote" state.
+                option_value: Optional[float] = None
+                option_pnl_live: Optional[float] = None
+                option_source: Optional[str] = None
+                try:
+                    from options_pricer import value_option_position
+                    val = value_option_position(
+                        tr,
+                        spot_override=price_cache.get(sym),
+                    )
+                    if val.get("ok"):
+                        option_value = float(val.get("cash_back") or 0)
+                        option_pnl_live = round(option_value - cash_locked, 2)
+                        option_source = val.get("source")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[paper-portfolio] option pricer failed for {sym}: {exc}")
+
+                # Stamp the row with whatever we learned. None values
+                # keep the existing "no quote" UX; populated values
+                # unlock the close button and show live P&L.
+                tr["unrealised_pnl_live"] = option_pnl_live
+                tr["option_value_live"] = option_value
+                tr["option_price_source"] = option_source
+
+                # Contribute the live value (when we have one) to the
+                # portfolio total — that way an option that's gained
+                # value visibly bumps the headline number. Falls back
+                # to cash_locked when the chain is unreachable so the
+                # number stays defensible.
+                live_open_value += float(option_value or cash_locked)
                 continue
 
             if not sym:
