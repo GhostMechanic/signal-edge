@@ -36,7 +36,7 @@ DOW_30 = [
 #     both an S&P 500 and NASDAQ-100 constituent.
 NASDAQ_100 = [
     "AAPL","ABNB","ADBE","ADI","ADP","ADSK","AEP","AMAT","AMD","AMGN",
-    "AMZN","ANSS","APP","ARM","ASML","AVGO","AZN","BIIB","BKNG","BKR",
+    "AMZN","APP","ARM","ASML","AVGO","AZN","BIIB","BKNG","BKR",
     "CCEP","CDNS","CDW","CEG","CHTR","CMCSA","COST","CPRT","CRWD","CSCO",
     "CSGP","CSX","CTAS","CTSH","DDOG","DLTR","DXCM","EA","EXC","FANG",
     "FAST","FTNT","GEHC","GFS","GILD","GOOG","GOOGL","HON","IDXX","ILMN",
@@ -50,6 +50,11 @@ NASDAQ_100 = [
     #     Surfaced when the model couldn't fetch data for SPLK on
     #     the asking flow and the receipt's universe check still
     #     claimed it was canonical.
+    #   • ANSS (Ansys) — acquired by Synopsys (SNPS) mid-2025,
+    #     delisted. Surfaced when a user tried to ask the model for
+    #     ANSS and got "Ticker not found or no price data" from
+    #     yfinance, but the universe gate had already let the symbol
+    #     through because it was still in the fallback list.
 ]
 
 # ── Major liquid ETFs ────────────────────────────────────────────────
