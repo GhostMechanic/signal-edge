@@ -1069,7 +1069,7 @@ def close_user_paper_trade_endpoint(
           source, per_leg, liq_per_contract, position_value }
     """
     try:
-        from db import _client, _current_user_id, USE_SUPABASE
+        from db import _service_client, _current_user_id, USE_SUPABASE
         if not USE_SUPABASE:
             return _supabase_unavailable_response(
                 "paper-trades close requires Supabase mode."
@@ -1077,12 +1077,21 @@ def close_user_paper_trade_endpoint(
         # Resolve `kind` server-side so we never trust the client to tell
         # us which path to take.
         uid = _current_user_id()
+        # Service client (RLS bypass) is correct here for the same reason
+        # the insert path uses it: the FastAPI Depends(get_current_user)
+        # has already authenticated the user, and the `.eq("user_id", uid)`
+        # filter is the security boundary. The anon `_client()` has no
+        # per-request JWT, so RLS would silently return 0 rows and the
+        # subsequent `.single()` raises PGRST116 — "Cannot coerce the
+        # result to a single JSON object. The result contains 0 rows."
+        # That was the bug the user hit when trying to close a position.
+        c = _service_client()
         kind_res = (
-            _client().table("paper_trades")
+            c.table("paper_trades")
                 .select("kind")
                 .eq("id", trade_id)
                 .eq("user_id", uid)
-                .single()
+                .maybe_single()
                 .execute()
         )
         kind_row = kind_res.data
