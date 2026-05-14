@@ -334,22 +334,83 @@ def analytics_accuracy_bands(public_only: bool = True) -> Dict[str, Any]:
 @app.get("/api/portfolio/summary")
 def portfolio_summary() -> Dict[str, Any]:
     """
-    The model's actual paper portfolio. cash + open positions (qty × entry)
-    valued live; equity_curve persists daily MTM points (anchor § 7).
+    The model's actual paper portfolio. cash + open positions valued
+    LIVE at the current market price; equity_curve persists daily MTM
+    points (anchor § 7).
 
     This is distinct from /api/analytics/simulated-portfolio, which is the
     legacy "what if the model traded every prediction equal-weight" simulation.
     The new endpoint surfaces the *curated* portfolio shaped by the
     TRADE/PASS rule (anchor § 2.1).
+
+    Live-MTM enrichment mirrors /api/paper-portfolio: db.get_model_
+    portfolio_summary() only computes open_value as Σ(qty × entry_price)
+    because db.py is the Supabase boundary, not the market-data
+    boundary. We do the price fetch + MTM math here so the same
+    endpoint the front-end polls every 15s reflects intraday
+    movement on the model's open positions — previously this number
+    only changed at trade-open / trade-close, which made TheBook feel
+    static next to YourBook (which already had this enrichment).
     """
     try:
         from db import get_model_portfolio_summary
-        return _json_safe({
-            "available": True,
-            **get_model_portfolio_summary(),
-        })
+        book = get_model_portfolio_summary()
     except NotImplementedError as exc:
         return _supabase_unavailable_response(str(exc))
+
+    # Enrich each open trade with a live current price + unrealised
+    # P&L. Cache by symbol so multi-position tickers only hit yfinance
+    # once. Same shape as the user-side enrichment below.
+    open_trades = book.get("positions") or []
+    if open_trades:
+        price_cache: Dict[str, Optional[float]] = {}
+        live_open_value = 0.0
+        for tr in open_trades:
+            sym = (tr.get("symbol") or "").upper().strip()
+            if not sym:
+                tr["current_price"] = None
+                tr["unrealised_pnl_live"] = None
+                continue
+            if sym not in price_cache:
+                price_cache[sym] = _resolve_current_price(sym)
+            cur = price_cache[sym]
+            tr["current_price"] = cur
+
+            qty = float(tr.get("qty") or 0)
+            entry = float(tr.get("entry_price") or 0)
+            direction = (tr.get("direction") or "LONG").upper()
+            if cur is not None and qty > 0 and entry > 0:
+                if direction == "LONG":
+                    pnl = (cur - entry) * qty
+                else:
+                    pnl = (entry - cur) * qty
+                tr["unrealised_pnl_live"] = round(pnl, 2)
+                live_open_value += cur * qty
+            else:
+                tr["unrealised_pnl_live"] = None
+                # Fall back to cost basis when no quote — don't poison
+                # the live total with a zero contribution.
+                live_open_value += entry * qty
+
+        # Overlay live numbers next to the cost-basis ones so the FE
+        # can prefer them when present and fall back gracefully when
+        # the quote feed momentarily blanks.
+        cash = float(book.get("cash") or 0)
+        starting = float(book.get("starting_capital") or 0) or 10000.0
+        portfolio_value_live = round(cash + live_open_value, 2)
+        total_return_pct_live = round(
+            ((portfolio_value_live / starting) - 1) * 100, 4
+        ) if starting > 0 else None
+
+        book["open_value_live"] = round(live_open_value, 2)
+        book["portfolio_value_live"] = portfolio_value_live
+        if total_return_pct_live is not None:
+            book["total_return_pct_live"] = total_return_pct_live
+
+    return _json_safe({
+        "available": True,
+        **book,
+    })
 
 
 # ─── User paper trading (Phase 2.0 — DEV_USER_ID single-user mode) ───────────
