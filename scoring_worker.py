@@ -498,6 +498,16 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
         bars, direction, target_price, checkpoint_price, stop_price,
     )
 
+    # NOTE on rating_checkpoint: post-migration 0017 the checkpoint axis
+    # is owned exclusively by tick_checkpoints() — it measures directional
+    # persistence at scheduled intervals, independent of trade outcome.
+    # The trade-close paths below pass rating_checkpoint="pending" so the
+    # close doesn't overwrite the checkpoint state the interval scorer
+    # is responsible for. The legacy midpoint-touch (`checkpoint_hit_bool`)
+    # is no longer used for rating_checkpoint; we still compute it for
+    # the PARTIAL verdict assignment at expiry, since PARTIAL is a
+    # trade-outcome concept (not the same as rating_checkpoint).
+
     # 1. TARGET hit → HIT.
     if target_hit_bool:
         # Use target_price as exit (the level we said we'd take profit at).
@@ -513,7 +523,7 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
             trade, direction, qty, entry_price, exit_price,
             close_status="closed_target",
             verdict="HIT",
-            rating_target="hit", rating_checkpoint="hit",
+            rating_target="hit", rating_checkpoint="pending",
             rating_expiration="pending",
         )
 
@@ -529,7 +539,7 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
             trade, direction, qty, entry_price, exit_price,
             close_status="closed_stop",
             verdict="MISSED",
-            rating_target="miss", rating_checkpoint="miss",
+            rating_target="miss", rating_checkpoint="pending",
             rating_expiration="pending",
         )
 
@@ -539,14 +549,16 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
     # it's not on the trade row directly.
     horizon_ends_at = _prediction_horizon_ends(trade["prediction_id"])
     if horizon_ends_at is not None and now >= horizon_ends_at:
-        # Window over. Use last close as exit price.
+        # Window over. Use last close as exit price. PARTIAL stays a
+        # midpoint-touch concept at the TRADE layer — it's the verdict
+        # axis that distinguishes "stopped out" from "drifted past
+        # halfway then didn't make it." rating_checkpoint, the analytics
+        # axis, is governed separately by tick_checkpoints().
         exit_price = last_close
         if checkpoint_hit_bool:
             verdict = "PARTIAL"
-            rating_checkpoint = "hit"
         else:
             verdict = "MISSED"
-            rating_checkpoint = "miss"
         # rating_expiration NOW resolves to a definite value: was the
         # endpoint direction correct? For LONG, last_close > entry =
         # right side; for SHORT, last_close < entry = right side.
@@ -562,7 +574,7 @@ def _evaluate_trade(trade: dict, now: datetime) -> Optional[CloseOutcome]:
             close_status="closed_expiry",
             verdict=verdict,
             rating_target="miss",
-            rating_checkpoint=rating_checkpoint,
+            rating_checkpoint="pending",
             rating_expiration="hit" if endpoint_correct else "miss",
         )
 
@@ -733,10 +745,26 @@ def _prediction_horizon_ends(prediction_id: str) -> Optional[datetime]:
 
 
 def _parse_iso(s: str) -> datetime:
-    """Parse a Postgres-style ISO timestamp into a tz-aware datetime."""
+    """Parse a Postgres-style ISO timestamp into a tz-aware datetime.
+
+    Python 3.9's datetime.fromisoformat is strict about fractional seconds —
+    it only accepts exactly 3 or 6 digits, and raises 'Invalid isoformat
+    string' on Postgres serializations like '.92735+00:00' (5 digits).
+    Python 3.11+ handles this natively. We normalize the fractional part
+    to exactly 6 digits before parsing so the worker keeps running on
+    older Pythons without forcing a runtime upgrade.
+    """
+    import re
     if isinstance(s, datetime):
         return s if s.tzinfo else s.replace(tzinfo=timezone.utc)
     s = str(s).replace("Z", "+00:00")
+    # Pad/truncate the .digits group to exactly 6 chars. The lookahead
+    # stops the match at the timezone suffix (+, -, or end of string).
+    s = re.sub(
+        r"\.(\d+)(?=[+\-]|$)",
+        lambda m: "." + m.group(1).ljust(6, "0")[:6],
+        s,
+    )
     dt = datetime.fromisoformat(s)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -825,12 +853,16 @@ def score_open_predictions(now: Optional[datetime] = None) -> dict:
                 summary["skipped_nodata"] += 1
                 continue
 
-            verdict, rt, rc, re_, actual_price, actual_return = outcome
+            # Post-migration 0017: rating_checkpoint is owned by
+            # tick_checkpoints. The `rc` slot from the tuple is
+            # intentionally not written — leaving it to whatever
+            # tick_checkpoints has already set (or NULL for Neutral
+            # predictions, which generate no checkpoint scores).
+            verdict, rt, _rc_unused, re_, actual_price, actual_return = outcome
 
             update_fields: dict = {
                 "verdict":           verdict,
                 "rating_target":     rt,
-                "rating_checkpoint": rc,
                 "rating_expiration": re_,
                 "scored_at":         now.isoformat(),
             }
@@ -1083,15 +1115,15 @@ def score_expiration_for_traded(now: Optional[datetime] = None) -> dict:
 
 def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
     """
-    Update rating_target / rating_checkpoint MID-FLIGHT — i.e. for
-    predictions whose horizon hasn't elapsed yet but whose target or
-    checkpoint has already been touched.
+    Update rating_target MID-FLIGHT — i.e. for predictions whose
+    horizon hasn't elapsed yet but whose target has already been
+    touched.
 
     Why this exists
     ───────────────
     `score_open_predictions()` only scores predictions whose
     horizon_ends_at has elapsed. For a 1-month AAPL call asked
-    May 1 with horizon ending May 31, the three rating fields stay
+    May 1 with horizon ending May 31, the rating fields stay
     'pending' for the full month even if price crossed the target
     on day 3. The ledger UI surfaces `rating_target` directly, so
     the user sees "TARGET: Pending" for the entire in-flight window
@@ -1099,9 +1131,11 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
 
     What it touches
     ───────────────
-    rating_target / rating_checkpoint only. rating_expiration stays
-    'pending' because the endpoint reading isn't decided until the
-    horizon expires (price can reverse before the close). verdict
+    rating_target ONLY. Post-migration 0017, rating_checkpoint is owned
+    by tick_checkpoints() — directional persistence at scheduled
+    intervals, not a midpoint-touch check. rating_expiration stays
+    'pending' here because the endpoint reading isn't decided until
+    the horizon expires (price can reverse before the close). verdict
     also stays 'OPEN' for the same reason.
 
     Idempotency
@@ -1113,7 +1147,7 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
     lifecycle).
 
     Returns a per-run summary for logs:
-        { "checked": N, "marked_target": x, "marked_checkpoint": y,
+        { "checked": N, "marked_target": x,
           "skipped_traded": k, "skipped_nodata": z, "errors": [...] }
     """
     from db import _service_client
@@ -1135,7 +1169,6 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
     summary = {
         "checked":           len(inflight),
         "marked_target":     0,
-        "marked_checkpoint": 0,
         "skipped_traded":    0,
         "skipped_nodata":    0,
         "errors":            [],
@@ -1144,13 +1177,14 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
     for pred in inflight:
         pred_id = pred["id"]
         try:
-            # If both ratings are already in a terminal state (hit or
-            # miss), nothing left to do — short-circuit to avoid the
-            # yfinance round-trip. 'pending' is the only state that
-            # invites another look.
+            # If rating_target is already in a terminal state (hit or
+            # miss), nothing left to do here — short-circuit to avoid
+            # the yfinance round-trip. 'pending' is the only state that
+            # invites another look. rating_checkpoint is no longer
+            # touched in this function (post-migration 0017 it lives
+            # on tick_checkpoints).
             rt = (pred.get("rating_target") or "pending").lower()
-            rc = (pred.get("rating_checkpoint") or "pending").lower()
-            if rt in ("hit", "miss") and rc in ("hit", "miss"):
+            if rt in ("hit", "miss"):
                 continue
 
             # Skip traded predictions — model_paper_trades owns those
@@ -1191,64 +1225,43 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
 
             if direction == "NEUTRAL":
                 # Neutral prediction = "price stays within deadband".
-                # In-flight semantic mirrors LONG/SHORT but inverted:
-                #   • If price has EXCEEDED 1× deadband → rating_target
-                #     flips to 'miss' (the tight band is broken).
-                #   • If price has EXCEEDED 2× deadband → also flip
-                #     rating_checkpoint to 'miss' (the looser band is
-                #     also broken; bigger move = worse).
-                # This is the natural inverse of LONG/SHORT where
-                # touching the target is the positive event. For
-                # Neutral, leaving the band is the decisive event.
+                # In-flight semantic: if price has EXCEEDED 1× deadband,
+                # rating_target flips to 'miss' (the tight band broke).
+                # Post-migration 0017 we no longer touch rating_checkpoint
+                # here — Neutral predictions don't generate checkpoint
+                # scores at all (directional check is undefined for
+                # Neutral).
                 if entry_price <= 0:
                     # Can't compute deadband bounds without an entry.
                     continue
                 upper_t = entry_price * (1 + NEUTRAL_RETURN_DEADBAND)
                 lower_t = entry_price * (1 - NEUTRAL_RETURN_DEADBAND)
-                upper_c = entry_price * (1 + 2 * NEUTRAL_RETURN_DEADBAND)
-                lower_c = entry_price * (1 - 2 * NEUTRAL_RETURN_DEADBAND)
                 highs = bars["High"].astype(float)
                 lows = bars["Low"].astype(float)
                 target_breached = bool(
                     (highs > upper_t).any() or (lows < lower_t).any()
                 )
-                checkpoint_breached = bool(
-                    (highs > upper_c).any() or (lows < lower_c).any()
-                )
                 if target_breached and rt != "miss":
                     update_fields["rating_target"] = "miss"
-                if checkpoint_breached and rc != "miss":
-                    update_fields["rating_checkpoint"] = "miss"
 
             else:
-                # LONG / SHORT — scan for target / checkpoint touched
-                # in the predicted direction.
+                # LONG / SHORT — scan for target touched in the predicted
+                # direction. The checkpoint touch (midpoint between entry
+                # and target) is no longer used to set rating_checkpoint —
+                # that axis is owned by tick_checkpoints and measures
+                # directional persistence, not midpoint touches.
                 target_price = (
                     float(pred["target_price"])
                     if pred.get("target_price") else None
                 )
 
-                # Checkpoint = midpoint between entry and target (Methodology §5.1).
-                if target_price and entry_price > 0:
-                    target_return     = (target_price / entry_price) - 1
-                    checkpoint_return = target_return / 2
-                    checkpoint_price  = entry_price * (1 + checkpoint_return)
-                else:
-                    checkpoint_price = None
-
-                target_hit_bool, checkpoint_hit_bool, _ = _scan_bars(
-                    bars, direction, target_price, checkpoint_price,
+                target_hit_bool, _, _ = _scan_bars(
+                    bars, direction, target_price, checkpoint_price=None,
                     stop_price=None,
                 )
 
                 if target_hit_bool and rt != "hit":
                     update_fields["rating_target"] = "hit"
-                    # Target implies checkpoint (target > checkpoint
-                    # in the predicted direction). Mark both atomically.
-                    if rc != "hit":
-                        update_fields["rating_checkpoint"] = "hit"
-                elif checkpoint_hit_bool and rc != "hit":
-                    update_fields["rating_checkpoint"] = "hit"
 
             if not update_fields:
                 continue
@@ -1259,12 +1272,239 @@ def score_inflight_predictions(now: Optional[datetime] = None) -> dict:
 
             if "rating_target" in update_fields:
                 summary["marked_target"] += 1
-            if "rating_checkpoint" in update_fields:
-                summary["marked_checkpoint"] += 1
         except Exception as exc:
             logger.exception(
                 "score_inflight_predictions failed for %s: %s", pred_id, exc
             )
+            summary["errors"].append({
+                "prediction_id": pred_id,
+                "error":         str(exc)[:200],
+            })
+
+    return summary
+
+
+# ─── Checkpoint scoring (new scheme, methodology § 4.3 post-migration 0017) ─
+#
+# The CHECKPOINT axis used to be "did the price touch the midpoint between
+# entry and target during the window?" — a single binary hit per prediction,
+# the same family as Target (magnitude check). That conflated three axes into
+# two-and-a-half: Target and Checkpoint were essentially "did the path reach
+# X% of the way" measurements that differed only in X.
+#
+# The new scheme makes Checkpoint a *directional persistence* axis,
+# distinct from Target (magnitude) and Expiration (terminal direction):
+# at each scheduled interval since the call was issued, was the close
+# price on the correct side of entry? Each interval is one binary
+# observation. The per-call rating_checkpoint surfaces "most recent
+# interval stands" — a sensible glanceable "where is the call right now?"
+# read — while the full trajectory is preserved in the new
+# prediction_checkpoint_scores table for the receipt's Checkpoints tab.
+#
+# Intervals continue firing even after the linked paper trade closes on
+# target / stop. A winning trade that exited on day 5 of a 1-year call
+# can still demonstrate (or fail to demonstrate) that the call was
+# *consistently* right over the following 360 days. Decoupling
+# checkpoint from trade state is the whole point of the refactor.
+#
+# Neutral predictions are skipped — there's no directional check to make
+# against entry. Their rating_checkpoint stays NULL.
+
+# Per-horizon checkpoint schedule. Square-root-ish spacing — heavier
+# sampling on longer horizons where directional drift accumulates,
+# minimal sampling on short horizons where noise dominates. Add a new
+# horizon by extending the dict; the schedule is the schedule.
+HORIZON_INTERVALS: dict[str, list[int]] = {
+    "3 Day":     [1],
+    "1 Week":    [1, 3],
+    "1 Month":   [1, 7, 14],
+    "1 Quarter": [1, 7, 30, 60],
+    "1 Year":    [1, 7, 30, 90, 180, 365],
+}
+
+
+def _checkpoint_intervals_for_horizon(horizon: str) -> list[int]:
+    """Return the per-horizon checkpoint interval schedule.
+
+    Unknown horizons fall back to a minimal schedule (1d, 7d) rather
+    than raising — keeps tick_checkpoints resilient to legacy rows
+    with horizon labels that pre-date the canonical set.
+    """
+    return HORIZON_INTERVALS.get((horizon or "").strip(), [1, 7])
+
+
+def _close_at_or_after(symbol: str, target_dt: datetime) -> Optional[float]:
+    """Return the daily close on `target_dt` (or the next trading day
+    if it lands on a weekend/holiday). None when no bars are available.
+
+    Uses daily bars (interval='1d'). The lookup window is target_dt to
+    target_dt + 10 days — accommodates long weekends without pulling a
+    full year of history per call.
+    """
+    try:
+        end_dt = (target_dt + timedelta(days=10))
+        hist = yf.Ticker(symbol).history(
+            start=target_dt.date().isoformat(),
+            end=end_dt.date().isoformat(),
+            interval="1d",
+        )
+        if hist is None or hist.empty:
+            return None
+        # First available close at or after target_dt.
+        first = hist.iloc[0]
+        close = float(first["Close"])
+        if not (close > 0):
+            return None
+        return close
+    except Exception as exc:
+        logger.exception(
+            "_close_at_or_after fetch failed for %s @ %s: %s",
+            symbol, target_dt.isoformat(), exc,
+        )
+        return None
+
+
+def tick_checkpoints(now: Optional[datetime] = None) -> dict:
+    """
+    Fire any scheduled checkpoint intervals that have come due and
+    aren't yet scored. Writes a row to prediction_checkpoint_scores
+    per (prediction_id, interval_days) pair and updates the parent
+    predictions.rating_checkpoint to the latest interval's status.
+
+    Idempotency
+    ───────────
+    The new table's UNIQUE (prediction_id, interval_days) constraint
+    prevents double-scoring at the DB layer. This function also
+    short-circuits if every scheduled interval for a prediction is
+    already represented — a one-liner that keeps the yfinance fetch
+    out of the path on no-op runs.
+
+    Cadence
+    ───────
+    Designed to run on the same cron as tick() — every 5 min during
+    market hours plus the 4:15 PM EOD pass. Interval boundaries are
+    measured in calendar days from prediction issue, so weekend
+    intervals shift to the next trading day inside _close_at_or_after.
+
+    Returns a per-run summary:
+        { "checked": N, "fired": x, "skipped_neutral": k,
+          "skipped_no_data": z, "errors": [...] }
+    """
+    from db import _service_client
+
+    now = now or datetime.now(timezone.utc)
+    client = _service_client()
+
+    # Pull every non-Neutral prediction. We don't filter by horizon end
+    # at the DB layer — intervals up to and including horizon_ends_at
+    # are valid, and per-prediction "every interval scored" short-
+    # circuiting handles the past-window case efficiently in-Python.
+    preds = (
+        client.table("predictions")
+              .select(
+                  "id, symbol, direction, entry_price, "
+                  "created_at, horizon"
+              )
+              .neq("direction", "Neutral")
+              .execute()
+    ).data or []
+
+    summary = {
+        "checked":         len(preds),
+        "fired":           0,
+        "skipped_neutral": 0,  # filtered at the query, retained for symmetry
+        "skipped_no_data": 0,
+        "errors":          [],
+    }
+
+    for pred in preds:
+        pred_id = pred["id"]
+        try:
+            symbol = pred["symbol"]
+            direction = (pred.get("direction") or "").strip()
+            entry_price = pred.get("entry_price")
+
+            if not entry_price or float(entry_price) <= 0:
+                # Can't direction-check against a missing entry.
+                continue
+
+            entry_price = float(entry_price)
+            issued_at = _parse_iso(pred["created_at"])
+            intervals = _checkpoint_intervals_for_horizon(pred.get("horizon", ""))
+
+            # Which intervals are due (issued_at + N days <= now)?
+            due = [
+                i for i in intervals
+                if issued_at + timedelta(days=i) <= now
+            ]
+            if not due:
+                continue
+
+            # Which are already scored? Pull once per prediction, not
+            # per interval, to keep the query count linear in
+            # predictions rather than quadratic.
+            existing = (
+                client.table("prediction_checkpoint_scores")
+                      .select("interval_days")
+                      .eq("prediction_id", pred_id)
+                      .execute()
+            ).data or []
+            already_scored = {row["interval_days"] for row in existing}
+
+            to_fire = [i for i in due if i not in already_scored]
+            if not to_fire:
+                continue
+
+            # Fire each due interval. We iterate one-by-one rather than
+            # batch-inserting so an individual yfinance failure doesn't
+            # take down the whole prediction's pending intervals.
+            for interval_days in to_fire:
+                target_dt = issued_at + timedelta(days=interval_days)
+                close_price = _close_at_or_after(symbol, target_dt)
+
+                if close_price is None:
+                    summary["skipped_no_data"] += 1
+                    continue
+
+                # Directional check against entry.
+                if direction == "Bullish":
+                    status = "hit" if close_price > entry_price else "miss"
+                elif direction == "Bearish":
+                    status = "hit" if close_price < entry_price else "miss"
+                else:
+                    # Defensive — the SQL query already excludes Neutral,
+                    # but if anything sneaks through, skip cleanly.
+                    summary["skipped_neutral"] += 1
+                    continue
+
+                client.table("prediction_checkpoint_scores").insert({
+                    "prediction_id": pred_id,
+                    "interval_days": interval_days,
+                    "scored_at":     now.isoformat(),
+                    "status":        status,
+                    "close_price":   close_price,
+                }).execute()
+                summary["fired"] += 1
+
+            # Update parent prediction's rating_checkpoint to reflect the
+            # latest scored interval. We re-fetch (rather than relying on
+            # in-Python state) so the value is always derived from the
+            # canonical table — handles races with parallel runs cleanly.
+            latest = (
+                client.table("prediction_checkpoint_scores")
+                      .select("status")
+                      .eq("prediction_id", pred_id)
+                      .order("interval_days", desc=True)
+                      .limit(1)
+                      .execute()
+            ).data
+            if latest:
+                client.table("predictions").update({
+                    "rating_checkpoint": latest[0]["status"],
+                }).eq("id", pred_id).execute()
+
+        except Exception as exc:
+            logger.exception("tick_checkpoints failed for %s: %s", pred_id, exc)
             summary["errors"].append({
                 "prediction_id": pred_id,
                 "error":         str(exc)[:200],
@@ -1293,17 +1533,25 @@ def _cli() -> int:
         result = tick()
         # Mid-flight rating update for non-traded ("Watched") predictions.
         # Lives alongside tick() because the GitHub Actions cron runs
-        # "tick" every 5 min during market hours, and we want target /
-        # checkpoint ratings to flip from pending → hit on the same
-        # cadence — not wait until the next 20:15 "both" pass.
+        # "tick" every 5 min during market hours, and we want target
+        # ratings to flip from pending → hit on the same cadence —
+        # not wait until the next 20:15 "both" pass.
         inflight = score_inflight_predictions()
         # Expiration resolver for traded predictions whose horizon has
         # just elapsed. Pairs with the close-at-target/stop path which
         # leaves rating_expiration='pending' until the horizon arrives.
         expiration = score_expiration_for_traded()
+        # NEW: directional-persistence checkpoint scoring. Fires any
+        # interval that's come due on any non-Neutral prediction and
+        # writes a row to prediction_checkpoint_scores; rating_checkpoint
+        # on the parent prediction is updated to the latest interval's
+        # status. Runs on the same cadence as tick() so the receipt /
+        # ledger surfaces fire on a sensible timeline.
+        checkpoints = tick_checkpoints()
         print(f"tick             : {result}")
         print(f"score_inflight   : {inflight}")
         print(f"score_expiration : {expiration}")
+        print(f"tick_checkpoints : {checkpoints}")
         return 0
     if cmd == "eod":
         result = eod_pass()
@@ -1336,6 +1584,15 @@ def _cli() -> int:
         result = score_expiration_for_traded()
         print(f"score_expiration: {result}")
         return 0
+    if cmd in ("tick_checkpoints", "checkpoints"):
+        # Standalone interval-firing pass. Useful for debugging the
+        # new checkpoint scheme without running the full tick chain,
+        # and for the historical backfill (which is a one-shot full
+        # sweep at much longer per-prediction cost than the steady-
+        # state cron).
+        result = tick_checkpoints()
+        print(f"tick_checkpoints: {result}")
+        return 0
     if cmd == "both":
         t = tick()
         e = eod_pass()
@@ -1348,6 +1605,9 @@ def _cli() -> int:
         # Expiration resolver for traded predictions whose horizon
         # just elapsed (closed-early-via-target-or-stop case).
         exp = score_expiration_for_traded()
+        # NEW: checkpoint interval scoring — fires any due intervals
+        # and updates rating_checkpoint on the parent prediction.
+        cp = tick_checkpoints()
         r = refresh_model_adjustments()
         print(f"tick             : {t}")
         print(f"eod              : {e}")
@@ -1355,6 +1615,7 @@ def _cli() -> int:
         print(f"score_open       : {s}")
         print(f"score_inflight   : {inf}")
         print(f"score_expiration : {exp}")
+        print(f"tick_checkpoints : {cp}")
         print(f"refresh          : {r}")
         return 0
     if cmd in ("backfill_option_expiries", "backfill"):
@@ -1373,6 +1634,7 @@ def _cli() -> int:
         return 0
 
     print(f"unknown command: {cmd!r}; expected tick|eod|users|score_open|"
+          f"score_inflight|score_expiration|tick_checkpoints|"
           f"both|backfill|refresh|retrain_pending")
     return 2
 
